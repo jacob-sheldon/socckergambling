@@ -8,3 +8,16 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Excel output files
+*.xlsx
+
+# Word temporary files
+*.doc
+*.docx
+
+# IDE temporary files
+~$*
+
+# Claude Code
+.claude/
