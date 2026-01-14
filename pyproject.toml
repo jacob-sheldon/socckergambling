@@ -1,0 +1,22 @@
+[project]
+name = "soccergambling"
+version = "0.1.0"
+description = "Generate Excel files for soccer betting records"
+requires-python = ">=3.12"
+dependencies = [
+    "openpyxl>=3.1.0",
+    "playwright>=1.40.0",
+]
+
+[project.optional-dependencies]
+dev = ["pyinstaller>=6.0.0"]
+
+[project.scripts]
+generate-live-template = "live_bet_scraper:main"
+generate-browser-template = "browser_bet_scraper:main"
+
+[tool.setuptools]
+py-modules = ["live_bet_scraper", "browser_bet_scraper"]
+
+[tool.uv]
+package = true
