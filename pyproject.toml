@@ -12,11 +12,10 @@ dependencies = [
 dev = ["pyinstaller>=6.0.0"]
 
 [project.scripts]
-generate-live-template = "live_bet_scraper:main"
 generate-browser-template = "browser_bet_scraper:main"
 
 [tool.setuptools]
-py-modules = ["live_bet_scraper", "browser_bet_scraper"]
+py-modules = ["browser_bet_scraper"]
 
 [tool.uv]
 package = true

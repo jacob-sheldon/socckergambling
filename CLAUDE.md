@@ -25,10 +25,7 @@ uv run playwright install chromium
 
 ### Running the Tool
 ```bash
-# Generate betting analysis template with live match data from 500.com (curl-based)
-uv run generate-live-template
-
-# Generate template using browser automation (Playwright) - more reliable for dynamic content
+# Generate template using browser automation (Playwright)
 uv run generate-browser-template
 
 # Browser automation with options
@@ -36,23 +33,27 @@ uv run generate-browser-template -o custom_output.xlsx --max-matches 5
 uv run generate-browser-template --no-headless  # Run with visible browser for debugging
 uv run generate-browser-template --enhanced-odds  # Fetch detailed odds data
 
-# The above commands create 'live_betting_template.xlsx' with real match IDs
+# The tool fetches live match data from live.500.com and displays it in terminal:
+# - 场次 (Match ID): 周一001, 周二002, etc.
+# - 赛事 (League): 德甲, 意甲, 非洲杯, etc.
+# - 轮次 (Round): 第17轮, 半决赛, etc.
+# - 比赛时间 (Match Time): 01-15 01:30
+# - 状态 (Status): 未, 进行中, 完场
+# - 主队/客队 (Home/Away Team) with rankings: [04]那不勒斯
+# - 让球 (Handicap): 半球, 球半, 受半球, etc.
+# - 赔率数据 (Odds): 胜负奖金, 让球奖金, 平均欧赔, 威廉, 澳彩, 365, 皇者
 ```
 
 ### Building Executable
-
-**Note:** The PyInstaller spec file (`betting_analysis_template.spec`) currently references a non-existent source file. To build an executable with the actual `live_bet_scraper.py` module:
 
 ```bash
 # Install PyInstaller (first time only)
 uv sync --dev
 
 # Build executable directly
-uv run pyinstaller --onefile --name "足球彩票分析工具" --console live_bet_scraper.py
+uv run pyinstaller --onefile --name "足球彩票分析工具" --console browser_bet_scraper.py
 # Output: dist/足球彩票分析工具 (or 足球彩票分析工具.exe on Windows)
 ```
-
-Or update the spec file to reference `live_bet_scraper.py` instead of `betting_analysis_template.py`.
 
 ### After Adding New Modules
 When adding new `.py` files as CLI modules, update `pyproject.toml`:
@@ -67,39 +68,43 @@ new-command = "new_module:main"
 generate-browser-template = "browser_bet_scraper:main"
 
 [tool.setuptools]
-py-modules = ["live_bet_scraper", "new_module", "browser_bet_scraper"]
+py-modules = ["new_module", "browser_bet_scraper"]
 ```
 
 ## Architecture
 
 ### Module Structure
 
-#### `live_bet_scraper.py` - Live Match Data Template Generator (curl-based)
-
-**Purpose:** Generates a professional betting analysis template with real match IDs scraped from 500.com.
-
-**Key Features:**
-- Scrapes live match data from 500.com (mobile version: https://live.m.500.com/home/zq/jczq/cur)
-- Uses `curl` via subprocess to avoid SSL library issues
-- Extracts match IDs in format like "001", "002" from Chinese sports betting website
-- Generates Excel templates with comprehensive odds analysis structure
-
-**Functions:**
-- `fetch_jingcai_matches(url, timeout)` - Scrapes match IDs from 500.com using curl
-- `_generate_fallback_match_ids(count)` - Generates sequential match IDs as fallback
-- `generate_live_template(filename, url, max_matches)` - Main entry point for template generation
-
 #### `browser_bet_scraper.py` - Browser Automation Template Generator (Playwright)
 
-**Purpose:** Generates betting analysis templates using browser automation for more reliable data extraction from dynamic websites.
+**Purpose:** Generates betting analysis templates using browser automation for reliable data extraction from live.500.com.
 
 **Key Features:**
 - Uses Playwright browser automation (Chromium) to render JavaScript
-- Extracts comprehensive match data: teams, leagues, match times, handicaps, odds
-- Anti-detection features: realistic user agent, mobile viewport
+- Fetches comprehensive match data from live.500.com Jingcai score table
+- Desktop browser mode for full table data access
+- Displays formatted match table in terminal with odds information
 - Supports headless and visible browser modes
 - Optional enhanced odds data fetching from detail pages
 - Fallback to sequential match IDs if scraping fails
+
+**Extracted Data Fields:**
+- `match_id` - 场次: 周一001, 周二002, etc.
+- `league` - 赛事: 德甲, 意甲, 非洲杯, etc.
+- `round` - 轮次: 第17轮, 半决赛, etc.
+- `match_time` - 比赛时间: 01-15 01:30
+- `status` - 状态: 未, 进行中, 完场
+- `home_team` / `home_rank` - 主队及排名: [04]那不勒斯
+- `handicap` - 让球: 半球, 球半, 受半球, etc.
+- `away_team` / `away_rank` - 客队及排名: 帕尔马[14]
+- `halftime_score` - 半场比分
+- `win_odds` - 胜负奖金
+- `let_odds` - 让球奖金
+- `avg_euro` - 平均欧赔
+- `william_odds` - 威廉赔率
+- `aust_odds` - 澳彩赔率
+- `bet365_odds` - 365赔率
+- `royal_odds` - 皇者赔率
 
 **Functions:**
 - `fetch_matches_with_browser(url, headless, timeout)` - Async function to fetch match data using Playwright
@@ -108,19 +113,12 @@ py-modules = ["live_bet_scraper", "new_module", "browser_bet_scraper"]
 - `add_match_data(ws, start_row, match)` - Adds match data to Excel worksheet
 - `generate_browser_template(filename, url, headless, max_matches, fetch_enhanced_odds)` - Main entry point with CLI support via argparse
 
-**Data Structure:**
-- `MatchData` dataclass with fields: match_id, league, home_team, away_team, match_time, handicap, home_odds, draw_odds, away_odds, asian_handicap_home, asian_handicap_away, over_under, kelly_home, kelly_draw, kelly_away
-
 **Template Structure:**
 - Two-row header system with merged cells
 - 18 columns for detailed odds analysis (亚盘盘口, 百家初凯, 横纵分析, 左右格局警示, 主流凯利, 平局预警, 平赔数据)
 - Time-based tracking: Each match has 9 time points (初盘3点, 赛前1, 赛前2, 临场一小时, 临场半小时, 临场15分钟, 临场10分钟, 临场, 完场)
 - 10 rows per match (1 match ID row + 9 time point rows)
 - Color-coded styling: blue headers, yellow match IDs, gray time labels
-
-**Functions:**
-- `fetch_jingcai_matches(url, timeout)` - Scrapes match IDs from 500.com
-- `generate_live_template(filename, url, max_matches)` - Main entry point for template generation
 
 ### Template Structure
 
@@ -182,21 +180,15 @@ All text is in Chinese. When modifying content:
 
 ## Web Scraping
 
-### curl-based Scraping (`live_bet_scraper.py`)
-The module scrapes match data from 500.com using `curl` via subprocess:
-- Mobile version URL is simpler to parse than desktop
-- Uses regex pattern `周[一二三四五六七日天日]\d{3}` to find match IDs
-- Extracts last 3 characters as numeric match ID
-- Includes error handling for timeouts, missing curl, and network failures
-
-**Note:** If the website structure changes, the regex pattern in `fetch_jingcai_matches()` may need updating.
-
 ### Browser Automation Scraping (`browser_bet_scraper.py`)
 Uses Playwright for browser automation:
-- Executes JavaScript in browser to render dynamic content
-- Mobile viewport (375x812) with realistic user agent
+- Desktop viewport (1920x1080) with realistic user agent
+- Fetches data from https://live.500.com/ (Jingcai score page)
 - Multiple selector strategies for robust data extraction
-- Extracts comprehensive match info: teams, leagues, times, handicaps, odds
+- Extracts comprehensive match info: teams, leagues, times, handicaps, odds, rankings
 - Handles JavaScript-rendered content that curl cannot access
+- Displays formatted table output in terminal
 
 **JavaScript Injection:** Data is extracted via `page.evaluate()` executing custom JavaScript in the browser context, allowing access to rendered DOM and dynamic content.
+
+**Terminal Output:** The tool displays a formatted table with all match data including odds information for easy viewing.

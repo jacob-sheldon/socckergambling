@@ -1,6 +1,6 @@
 """
-Generate betting analysis Excel template with comprehensive real match data from 500.com using browser automation.
-This uses Playwright for reliable JavaScript rendering and data extraction.
+Generate betting analysis Excel template with comprehensive real match data from live.500.com.
+This uses Playwright to extract the full table data from the Jingcai score page.
 
 Run: uv run generate-browser-template
 """
@@ -14,7 +14,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
 
 # URLs for different data sources
-BASE_URL = "https://live.m.500.com/home/zq/jczq/cur"
+BASE_URL = "https://live.500.com/"  # Desktop version with full table data
 DESKTOP_URL = "https://www.500.com/jczq/"
 ODDS_URL = "https://odds.500.com/"
 
@@ -25,46 +25,52 @@ ODDS_URL = "https://odds.500.com/"
 
 @dataclass
 class MatchData:
-    """Comprehensive match data structure."""
-    match_id: str
-    league: str
-    home_team: str
-    away_team: str
-    match_time: str
-    handicap: Optional[str] = None
-    home_odds: Optional[float] = None
-    draw_odds: Optional[float] = None
-    away_odds: Optional[float] = None
-    asian_handicap_home: Optional[float] = None
-    asian_handicap_away: Optional[float] = None
-    over_under: Optional[float] = None
-    kelly_home: Optional[float] = None
-    kelly_draw: Optional[float] = None
-    kelly_away: Optional[float] = None
+    """Comprehensive match data structure from live.500.com table."""
+    match_id: str           # 场次: 周一001, 周二002, etc.
+    league: str             # 赛事: 澳超, 非洲杯, etc.
+    round: str              # 轮次: 第17轮, 1/8决赛, etc.
+    match_time: str         # 比赛时间: 01-05 16:00
+    status: str             # 状态: 未, 进行中, 完场
+    home_team: str          # 主队: [04]麦克阿瑟FC
+    home_rank: str          # 主队排名: 04
+    handicap: str           # 让球: 受平手/半球, 一球/球半, etc.
+    away_team: str          # 客队: 奥克兰FC[01]
+    away_rank: str          # 客队排名: 01
+    halftime_score: str     # 半场比分
+    win_odds: str           # 胜负奖金
+    let_odds: str           # 让球奖金
+    avg_euro: str           # 平均欧赔
+    william_odds: str       # 威廉赔率
+    aust_odds: str          # 澳彩赔率
+    bet365_odds: str        # 365赔率
+    royal_odds: str         # 皇者赔率
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for Excel serialization."""
         return {
             'match_id': self.match_id,
             'league': self.league,
-            'home_team': self.home_team,
-            'away_team': self.away_team,
+            'round': self.round,
             'match_time': self.match_time,
+            'status': self.status,
+            'home_team': self.home_team,
+            'home_rank': self.home_rank,
             'handicap': self.handicap,
-            'home_odds': self.home_odds,
-            'draw_odds': self.draw_odds,
-            'away_odds': self.away_odds,
-            'asian_handicap_home': self.asian_handicap_home,
-            'asian_handicap_away': self.asian_handicap_away,
-            'over_under': self.over_under,
-            'kelly_home': self.kelly_home,
-            'kelly_draw': self.kelly_draw,
-            'kelly_away': self.kelly_away,
+            'away_team': self.away_team,
+            'away_rank': self.away_rank,
+            'halftime_score': self.halftime_score,
+            'win_odds': self.win_odds,
+            'let_odds': self.let_odds,
+            'avg_euro': self.avg_euro,
+            'william_odds': self.william_odds,
+            'aust_odds': self.aust_odds,
+            'bet365_odds': self.bet365_odds,
+            'royal_odds': self.royal_odds,
         }
 
 
 # ============================================================================
-# EXCEL TEMPLATES CONSTANTS (reused from live_bet_scraper.py)
+# EXCEL TEMPLATES CONSTANTS
 # ============================================================================
 
 MAIN_HEADERS = [
@@ -155,19 +161,14 @@ DATA_ALIGNMENT = Alignment(horizontal="center", vertical="center")
 async def fetch_matches_with_browser(
     url: str = BASE_URL,
     headless: bool = True,
-    timeout: int = 30000
+    timeout: int = 60000
 ) -> List[MatchData]:
     """
-    Fetch comprehensive match data using Playwright browser automation.
-
-    This approach:
-    - Executes JavaScript to render dynamic content
-    - Handles complex page interactions
-    - Extracts detailed odds information
-    - More reliable than HTTP requests for SPA/dynamic sites
+    Fetch comprehensive match data from live.500.com using Playwright.
+    Extracts the full Jingcai betting table with all columns.
 
     Args:
-        url: URL to scrape (default: 500.com mobile Jingcai page)
+        url: URL to scrape (default: live.500.com)
         headless: Run browser in headless mode (no GUI)
         timeout: Page load timeout in milliseconds
 
@@ -176,7 +177,8 @@ async def fetch_matches_with_browser(
     """
     from playwright.async_api import async_playwright, Error as PlaywrightError
 
-    print(f"Launching browser to fetch data from {url}...")
+    print(f"正在从 {url} 获取竞彩比分数据...")
+    print("=" * 80)
 
     try:
         async with async_playwright() as p:
@@ -190,126 +192,155 @@ async def fetch_matches_with_browser(
                 ]
             )
 
-            # Create context with realistic user agent
+            # Create context with realistic user agent (desktop)
             context = await browser.new_context(
-                user_agent='Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
-                viewport={'width': 375, 'height': 812},  # Mobile viewport
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                viewport={'width': 1920, 'height': 1080},
                 locale='zh-CN',
             )
 
             page = await context.new_page()
 
             # Navigate to URL and wait for network idle
-            print("Loading page...")
-            await page.goto(url, wait_until='networkidle', timeout=timeout)
+            print("正在加载页面...")
+            await page.goto(url, wait_until='domcontentloaded', timeout=timeout)
 
-            # Wait for match data to load
+            # Wait for the table to load
             try:
-                await page.wait_for_selector('table, .match-list, [data-match-id]', timeout=10000)
+                await page.wait_for_selector('table', timeout=10000)
+                print("✓ 表格加载成功")
             except Exception:
-                print("Warning: Could not find expected match container, proceeding anyway...")
+                print("⚠ 未找到表格，继续尝试...")
 
-            # Execute JavaScript to extract comprehensive match data
-            print("Extracting match data...")
+            # Execute JavaScript to extract the full table data
+            print("正在提取表格数据...")
 
             extraction_script = """
             () => {
                 const matches = [];
 
-                // Try multiple selectors for match containers
-                const possibleContainers = [
-                    'table tr',
-                    '.match-item',
-                    '[data-match-id]',
-                    '.jczq-table tr',
-                    '.odds-table tr',
-                    'tbody tr'
-                ];
+                // Find the main table with Jingcai scores
+                const tables = document.querySelectorAll('table');
+                let targetTable = null;
 
-                let matchRows = [];
-                for (const selector of possibleContainers) {
-                    matchRows = Array.from(document.querySelectorAll(selector));
-                    if (matchRows.length > 0) {
-                        console.log(`Found ${matchRows.length} rows using selector: ${selector}`);
-                        break;
+                // Look for table with match rows
+                for (const table of tables) {
+                    const rows = table.querySelectorAll('tr');
+                    if (rows.length > 2) {
+                        const firstRow = rows[0];
+                        if (firstRow.innerText.includes('场次') || firstRow.innerText.includes('赛事')) {
+                            targetTable = table;
+                            break;
+                        }
                     }
                 }
 
-                // If no structured data found, try to find match info in page
-                if (matchRows.length === 0) {
-                    // Fallback: search for match patterns in entire page
-                    const textContent = document.body.innerText;
-                    const matchPatterns = textContent.match(/周[一二三四五六七日天日]\\d{3}/g) || [];
-                    console.log(`Found ${matchPatterns.length} match patterns in page text`);
-
-                    return matchPatterns.map((pattern, idx) => ({
-                        match_id: pattern.slice(-3),
-                        league: '未知联赛',
-                        home_team: '主队' + (idx + 1),
-                        away_team: '客队' + (idx + 1),
-                        match_time: '待定',
-                        raw_html: pattern
-                    }));
+                if (!targetTable) {
+                    console.log('未找到目标表格');
+                    return matches;
                 }
 
+                console.log('找到表格，行数:', targetTable.querySelectorAll('tr').length);
+
                 // Extract data from each row
-                matchRows.forEach((row, idx) => {
+                const rows = targetTable.querySelectorAll('tr');
+                for (let i = 0; i < rows.length; i++) {
+                    const row = rows[i];
+                    const cells = row.querySelectorAll('td');
+
+                    if (cells.length < 5) continue; // Skip header rows or empty rows
+
                     try {
-                        const cells = row.querySelectorAll('td');
-                        if (cells.length < 2) return;
+                        // Extract match ID (e.g., "周一001")
+                        const firstCell = cells[0].innerText.trim();
+                        const matchIdMatch = firstCell.match(/周[一二三四五六七日天日](\\d{3})/);
+                        if (!matchIdMatch) continue;
 
-                        const text = row.innerText || '';
-                        const matchIdMatch = text.match(/(\\d{3})/) ||
-                                           text.match(/周[一二三四五六七日天日](\\d{3})/) ||
-                                           row.getAttribute('data-match-id');
+                        const match_id = firstCell;
 
-                        if (!matchIdMatch) return;
+                        // Extract league (赛事)
+                        const league = cells[1] ? cells[1].innerText.trim() : '';
 
-                        const matchId = matchIdMatch instanceof Array ?
-                                       matchIdMatch[0].slice(-3) : matchIdMatch;
+                        // Extract round (轮次)
+                        const round = cells[2] ? cells[2].innerText.trim() : '';
 
-                        // Extract team names
-                        const teamMatch = text.match(/([\\u4e00-\\u9fa5\\w\\s]+)\\s*[vsVS|]\\s*([\\u4e00-\\u9fa5\\w\\s]+)/);
-                        const homeTeam = teamMatch ? teamMatch[1].trim() : `主队${idx + 1}`;
-                        const awayTeam = teamMatch ? teamMatch[2].trim() : `客队${idx + 1}`;
+                        // Extract match time
+                        const match_time = cells[3] ? cells[3].innerText.trim() : '';
 
-                        // Extract league info
-                        const leagueMatch = text.match(/([\\u4e00-\\u9fa5]{2,10}\\s?\\d{4})/);
-                        const league = leagueMatch ? leagueMatch[1] : '未知联赛';
+                        // Extract status
+                        const status = cells[4] ? cells[4].innerText.trim() : '';
 
-                        // Extract odds if present
-                        const oddsMatch = text.match(/([\\d.]+)\\s*[\\/／]\\s*([\\d.]+)\\s*[\\/／]\\s*([\\d.]+)/);
-                        const homeOdds = oddsMatch ? parseFloat(oddsMatch[1]) : null;
-                        const drawOdds = oddsMatch ? parseFloat(oddsMatch[2]) : null;
-                        const awayOdds = oddsMatch ? parseFloat(oddsMatch[3]) : null;
+                        // Extract home team with ranking
+                        let home_team_raw = cells[5] ? cells[5].innerText.trim() : '';
+                        // Handle completed matches with score embedded
+                        if (home_team_raw.includes('\\n')) {
+                            const lines = home_team_raw.split('\\n');
+                            home_team_raw = lines[0];
+                        }
+                        const home_rank_match = home_team_raw.match(/\\[(\\d+)\\]/);
+                        const home_rank = home_rank_match ? home_rank_match[1] : '';
+                        const home_team = home_team_raw.replace(/\\[\\d+\\]/, '').trim();
 
-                        // Extract handicap
-                        const handicapMatch = text.match(/([\\-+]?[\\d.]+\\s*球?)/);
-                        const handicap = handicapMatch ? handicapMatch[1] : null;
+                        // Extract handicap (让球)
+                        const handicap = cells[6] ? cells[6].innerText.trim() : '';
 
-                        // Extract time
-                        const timeMatch = text.match(/(\\d{1,2}:\\d{2})/);
-                        const matchTime = timeMatch ? timeMatch[1] : '待定';
+                        // Extract away team with ranking
+                        let away_team_raw = cells[7] ? cells[7].innerText.trim() : '';
+                        // Handle completed matches with score embedded
+                        if (away_team_raw.includes('\\n')) {
+                            const lines = away_team_raw.split('\\n');
+                            away_team_raw = lines[0];
+                        }
+                        const away_rank_match = away_team_raw.match(/\\[(\\d+)\\]/);
+                        const away_rank = away_rank_match ? away_rank_match[1] : '';
+                        const away_team = away_team_raw.replace(/\\[\\d+\\]/, '').trim();
+
+                        // Extract halftime score
+                        let halftime_score = cells[8] ? cells[8].innerText.trim() : '';
+                        // Clean up multiline scores
+                        if (halftime_score.includes('\\n')) {
+                            const lines = halftime_score.split('\\n');
+                            halftime_score = lines[lines.length - 1].trim();
+                        }
+
+                        // Extract odds data
+                        const win_odds = cells[9] ? cells[9].innerText.trim() : '';
+                        const let_odds = cells[10] ? cells[10].innerText.trim() : '';
+                        const avg_euro = cells[11] ? cells[11].innerText.trim() : '';
+
+                        // Extract company odds
+                        const william_odds = cells[12] ? cells[12].innerText.trim() : '';
+                        const aust_odds = cells[13] ? cells[13].innerText.trim() : '';
+                        const bet365_odds = cells[14] ? cells[14].innerText.trim() : '';
+                        const royal_odds = cells[15] ? cells[15].innerText.trim() : '';
 
                         matches.push({
-                            match_id: matchId,
-                            league: league,
-                            home_team: homeTeam,
-                            away_team: awayTeam,
-                            match_time: matchTime,
-                            handicap: handicap,
-                            home_odds: homeOdds,
-                            draw_odds: drawOdds,
-                            away_odds: awayOdds,
-                            raw_html: row.innerHTML.slice(0, 200)  // Truncate for debugging
+                            match_id,
+                            league,
+                            round,
+                            match_time,
+                            status,
+                            home_team,
+                            home_rank,
+                            handicap,
+                            away_team,
+                            away_rank,
+                            halftime_score,
+                            win_odds,
+                            let_odds,
+                            avg_euro,
+                            william_odds,
+                            aust_odds,
+                            bet365_odds,
+                            royal_odds
                         });
 
                     } catch (err) {
-                        console.error(`Error processing row ${idx}:`, err.message);
+                        console.error(`处理第 ${i} 行时出错:`, err.message);
                     }
-                });
+                }
 
-                console.log(`Extracted ${matches.length} matches`);
+                console.log(`成功提取 ${matches.length} 场比赛数据`);
                 return matches;
             }
             """
@@ -321,30 +352,53 @@ async def fetch_matches_with_browser(
             matches = []
             for item in extracted_data:
                 match = MatchData(
-                    match_id=item.get('match_id', f"{len(matches) + 1:03d}"),
-                    league=item.get('league', '未知联赛'),
-                    home_team=item.get('home_team', '未知主队'),
-                    away_team=item.get('away_team', '未知客队'),
-                    match_time=item.get('match_time', '待定'),
-                    handicap=item.get('handicap'),
-                    home_odds=item.get('home_odds'),
-                    draw_odds=item.get('draw_odds'),
-                    away_odds=item.get('away_odds')
+                    match_id=item.get('match_id', ''),
+                    league=item.get('league', ''),
+                    round=item.get('round', ''),
+                    match_time=item.get('match_time', ''),
+                    status=item.get('status', ''),
+                    home_team=item.get('home_team', ''),
+                    home_rank=item.get('home_rank', ''),
+                    handicap=item.get('handicap', ''),
+                    away_team=item.get('away_team', ''),
+                    away_rank=item.get('away_rank', ''),
+                    halftime_score=item.get('halftime_score', ''),
+                    win_odds=item.get('win_odds', ''),
+                    let_odds=item.get('let_odds', ''),
+                    avg_euro=item.get('avg_euro', ''),
+                    william_odds=item.get('william_odds', ''),
+                    aust_odds=item.get('aust_odds', ''),
+                    bet365_odds=item.get('bet365_odds', ''),
+                    royal_odds=item.get('royal_odds', '')
                 )
                 matches.append(match)
 
-            print(f"Successfully extracted {len(matches)} matches from browser")
+            # Print table to terminal with detailed odds
+            print("\n" + "=" * 200)
+            print(f"{'场次':<8} {'赛事':<8} {'轮次':<12} {'时间':<14} {'状态':<4} {'主队':<22} {'让球':<12} {'客队':<22} {'胜负':<12} {'让球':<12} {'均欧':<10}")
+            print("=" * 200)
+
+            for match in matches:
+                home_rank_str = f"[{match.home_rank}]" if match.home_rank else ""
+                away_rank_str = f"[{match.away_rank}]" if match.away_rank else ""
+
+                print(f"{match.match_id:<8} {match.league:<8} {match.round:<12} {match.match_time:<14} "
+                      f"{match.status:<4} {home_rank_str}{match.home_team:<22} {match.handicap:<12} "
+                      f"{match.away_team:<22}{away_rank_str} {match.win_odds:<12} {match.let_odds:<12} {match.avg_euro:<10}")
+
+            print("=" * 160)
+            print(f"\n✓ 成功从浏览器提取 {len(matches)} 场比赛数据")
 
             await browser.close()
             return matches
 
     except PlaywrightError as e:
-        print(f"Playwright error: {e}")
-        print("Falling back to sequential match IDs...")
+        print(f"Playwright 错误: {e}")
+        print("回退到生成示例数据...")
         return _generate_fallback_matches()
     except Exception as e:
-        print(f"Browser automation failed: {e}")
-        print("Falling back to sequential match IDs...")
+        print(f"浏览器自动化失败: {e}")
+        print("回退到生成示例数据...")
         return _generate_fallback_matches()
 
 
@@ -353,14 +407,27 @@ def _generate_fallback_matches(count: int = 15) -> List[MatchData]:
     matches = []
     for i in range(1, count + 1):
         match = MatchData(
-            match_id=f"{i:03d}",
-            league=f"竞彩联赛{i}",
+            match_id=f"周一{i:03d}",
+            league=f"竞彩联赛",
+            round=f"第{i}轮",
+            match_time=f"01-{i+5:02d} 14:00",
+            status="未",
             home_team=f"主队{i}",
+            home_rank=f"{i:02d}",
+            handicap=f"受平手/半球",
             away_team=f"客队{i}",
-            match_time="14:00"
+            away_rank=f"{20-i:02d}",
+            halftime_score="-",
+            win_odds="",
+            let_odds="",
+            avg_euro="",
+            william_odds="",
+            aust_odds="",
+            bet365_odds="",
+            royal_odds=""
         )
         matches.append(match)
-    print(f"Generated {len(matches)} fallback matches")
+    print(f"生成了 {len(matches)} 条示例数据")
     return matches
 
 
@@ -387,7 +454,7 @@ async def fetch_enhanced_odds_data(match_ids: List[str]) -> Dict[str, Dict]:
             for match_id in match_ids:
                 try:
                     # Construct detailed odds URL for the match
-                    detail_url = f"{ODDS_URL}jczq/{match_id}.shtml"
+                    detail_url = f"{ODDS_URL}jczq/{match_id.replace('周', '')}.shtml"
                     await page.goto(detail_url, timeout=15000)
 
                     # Extract odds data
@@ -414,13 +481,13 @@ async def fetch_enhanced_odds_data(match_ids: List[str]) -> Dict[str, Dict]:
                     await asyncio.sleep(0.5)
 
                 except Exception as e:
-                    print(f"Could not fetch odds for match {match_id}: {e}")
+                    print(f"无法获取比赛 {match_id} 的赔率数据: {e}")
                     odds_data[match_id] = {}
 
             await browser.close()
 
     except Exception as e:
-        print(f"Enhanced odds fetching failed: {e}")
+        print(f"增强赔率数据获取失败: {e}")
 
     return odds_data
 
@@ -489,16 +556,13 @@ def add_match_data(ws, start_row: int, match: MatchData) -> int:
 
     # Match ID row
     ws.cell(row=current_row, column=1, value=match.match_id)
-
-    # Add handicap if available
-    handicap = match.handicap if match.handicap else "待定"
-    ws.cell(row=current_row, column=2, value=handicap)
+    ws.cell(row=current_row, column=2, value=match.handicap)
 
     # Add odds data if available
-    if match.home_odds:
-        ws.cell(row=current_row, column=3, value=match.home_odds)
-    if match.away_odds:
-        ws.cell(row=current_row, column=4, value=match.away_odds)
+    if match.win_odds:
+        ws.cell(row=current_row, column=3, value=match.win_odds)
+    if match.let_odds:
+        ws.cell(row=current_row, column=4, value=match.let_odds)
 
     # Style match ID row
     for col_idx in range(1, 19):
@@ -548,15 +612,15 @@ def generate_browser_template(
         max_matches: Maximum number of matches to include
         fetch_enhanced_odds: Whether to fetch enhanced odds data (slower)
     """
-    print("=" * 60)
-    print("Browser-Based Betting Template Generator")
-    print("=" * 60)
+    print("=" * 80)
+    print("浏览器自动化 - 足球彩票分析模板生成器")
+    print("=" * 80)
 
     # Fetch match data using browser automation
     matches = asyncio.run(fetch_matches_with_browser(url, headless=headless))
 
     if not matches:
-        print("No matches found. Generating empty template...")
+        print("未找到比赛数据，生成空模板...")
         matches = _generate_fallback_matches(5)
 
     # Limit matches if specified
@@ -566,7 +630,7 @@ def generate_browser_template(
     # Optionally fetch enhanced odds data
     odds_data = {}
     if fetch_enhanced_odds:
-        print("Fetching enhanced odds data...")
+        print("\n正在获取增强赔率数据...")
         match_ids = [m.match_id for m in matches]
         odds_data = asyncio.run(fetch_enhanced_odds_data(match_ids))
 
@@ -607,13 +671,13 @@ def generate_browser_template(
     # Save workbook
     wb.save(filename)
 
-    print("=" * 60)
-    print(f"✓ Excel template '{filename}' generated successfully!")
-    print(f"  - Contains {len(matches)} real matches")
-    print(f"  - Data scraped using browser automation")
+    print("=" * 80)
+    print(f"✓ Excel 模板 '{filename}' 生成成功！")
+    print(f"  - 包含 {len(matches)} 场真实比赛数据")
+    print(f"  - 使用浏览器自动化抓取数据")
     if fetch_enhanced_odds:
-        print(f"  - Enhanced odds data included")
-    print("=" * 60)
+        print(f"  - 已包含增强赔率数据")
+    print("=" * 80)
 
 
 def main():
@@ -621,33 +685,33 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Generate betting analysis Excel template using browser automation"
+        description="使用浏览器自动化生成足球彩票分析 Excel 模板"
     )
     parser.add_argument(
         "-o", "--output",
         default="live_betting_template.xlsx",
-        help="Output Excel filename (default: live_betting_template.xlsx)"
+        help="输出 Excel 文件名 (默认: live_betting_template.xlsx)"
     )
     parser.add_argument(
         "-u", "--url",
         default=BASE_URL,
-        help=f"URL to scrape (default: {BASE_URL})"
+        help=f"要抓取的 URL (默认: {BASE_URL})"
     )
     parser.add_argument(
         "--no-headless",
         action="store_true",
-        help="Run browser with GUI (useful for debugging)"
+        help="显示浏览器窗口（用于调试）"
     )
     parser.add_argument(
         "-m", "--max-matches",
         type=int,
         default=None,
-        help="Maximum number of matches to include"
+        help="最多包含的比赛数量"
     )
     parser.add_argument(
         "--enhanced-odds",
         action="store_true",
-        help="Fetch enhanced odds data (slower but more comprehensive)"
+        help="获取增强赔率数据（更慢但更全面）"
     )
 
     args = parser.parse_args()
