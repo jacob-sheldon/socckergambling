@@ -6,16 +6,19 @@ requires-python = ">=3.12"
 dependencies = [
     "openpyxl>=3.1.0",
     "playwright>=1.40.0",
+    "PyQt6>=6.0.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pyinstaller>=6.0.0"]
+dev = ["pyinstaller>=6.0.0", "py2app>=0.28"]
 
 [project.scripts]
 generate-browser-template = "browser_bet_scraper:main"
+gui-app = "gui.main:main"
 
 [tool.setuptools]
-py-modules = ["browser_bet_scraper"]
+py-modules = ["browser_bet_scraper", "gui.main", "gui.main_window", "gui.widgets.control_panel", "gui.widgets.match_table", "gui.widgets.progress_dialog", "gui.workers.scraping_worker"]
+packages = ["gui", "gui.widgets", "gui.workers"]
 
 [tool.uv]
 package = true

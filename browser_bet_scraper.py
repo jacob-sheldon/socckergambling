@@ -7,11 +7,63 @@ Run: uv run generate-browser-template
 
 import asyncio
 import json
+import os
+import sys
 from dataclasses import dataclass, asdict
 from datetime import datetime
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+
+
+def _setup_bundled_browser():
+    """
+    Configure Playwright to use the bundled browser in the .app package.
+    This must be called before importing Playwright modules.
+    """
+    # Check if we're running from a PyInstaller bundle
+    if not getattr(sys, 'frozen', False):
+        return False
+
+    # Try multiple strategies to find the bundled browsers directory
+    browsers_path = None
+
+    # Strategy 1: Check sys._MEIPASS (works for onedir builds)
+    if hasattr(sys, '_MEIPASS'):
+        path = Path(sys._MEIPASS) / 'ms-playwright'
+        if path.exists():
+            browsers_path = path
+            print(f"[DEBUG] Found browsers via _MEIPASS: {browsers_path}")
+
+    # Strategy 2: For macOS .app bundles, find Resources via executable path
+    # .app structure: AppName.app/Contents/MacOS/executable -> ../Resources
+    if browsers_path is None and 'MacOS' in Path(sys.executable).parts:
+        exec_path = Path(sys.executable)
+        resources_path = exec_path.parent.parent / 'Resources' / 'ms-playwright'
+        if resources_path.exists():
+            browsers_path = resources_path
+            print(f"[DEBUG] Found browsers via executable path: {browsers_path}")
+
+    # Strategy 3: Try looking relative to the executable (for onefile builds)
+    if browsers_path is None:
+        exec_dir = Path(sys.executable).parent
+        path = exec_dir / 'ms-playwright'
+        if path.exists():
+            browsers_path = path
+            print(f"[DEBUG] Found browsers via exec_dir: {browsers_path}")
+
+    if browsers_path:
+        os.environ['PLAYWRIGHT_BROWSERS_PATH'] = str(browsers_path)  # Directory containing chromium-*
+        print(f"[DEBUG] Set PLAYWRIGHT_BROWSERS_PATH to: {browsers_path}")
+        return True
+
+    print(f"[DEBUG] Could not find bundled browsers. sys.frozen={sys.frozen}, _MEIPASS={getattr(sys, '_MEIPASS', 'N/A')}, executable={sys.executable}")
+    return False
+
+
+# Setup bundled browser path before importing Playwright
+_setup_bundled_browser()
 
 # URLs for different data sources
 BASE_URL = "https://live.500.com/"  # Desktop version with full table data
@@ -49,6 +101,7 @@ class MatchData:
     home_water: str = ""        # 水1 - home team odds from Crown (冠) row
     away_water: str = ""        # 水2 - away team odds from Crown (冠) row
     analysis_url: str = ""      # URL of the Asian handicap analysis page
+    is_fallback: bool = False   # True if this is placeholder data from error fallback
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for Excel serialization."""
@@ -423,11 +476,17 @@ async def fetch_matches_with_browser(
     except PlaywrightError as e:
         print(f"Playwright 错误: {e}")
         print("回退到生成示例数据...")
-        return _generate_fallback_matches()
+        fallback_data = _generate_fallback_matches()
+        for match in fallback_data:
+            match.is_fallback = True
+        return fallback_data
     except Exception as e:
         print(f"浏览器自动化失败: {e}")
         print("回退到生成示例数据...")
-        return _generate_fallback_matches()
+        fallback_data = _generate_fallback_matches()
+        for match in fallback_data:
+            match.is_fallback = True
+        return fallback_data
 
 
 def _generate_fallback_matches(count: int = 15) -> List[MatchData]:
