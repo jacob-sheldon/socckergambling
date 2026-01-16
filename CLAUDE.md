@@ -44,6 +44,27 @@ uv run generate-browser-template --enhanced-odds  # Fetch detailed odds data
 # - 赔率数据 (Odds): 胜负奖金, 让球奖金, 平均欧赔, 威廉, 澳彩, 365, 皇者
 ```
 
+### Custom Claude Code Commands
+
+```bash
+# Git commit helper - interactive commit creation
+/commit
+
+# This command provides:
+# - Current git status display
+# - Unstaged and staged changes preview
+# - Recent commit messages for style reference
+# - Automatic co-authorship (Co-Authored-By: Claude <noreply@anthropic.com>)
+```
+
+**Commit Message Style:**
+- Use conventional commit format: `Type: Description`
+- Types: Add, Fix, Refactor, Update, Docs, Remove
+- Examples:
+  - `Add: Asian handicap analysis data fetching from detail pages`
+  - `Fix: Handle missing odds data gracefully`
+  - `Refactor: Improve error handling in browser automation`
+
 ### Building Executable
 
 ```bash
