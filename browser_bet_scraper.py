@@ -44,6 +44,11 @@ class MatchData:
     aust_odds: str          # 澳彩赔率
     bet365_odds: str        # 365赔率
     royal_odds: str         # 皇者赔率
+    # Asian handicap analysis data (from "亚" link pages)
+    asian_handicap: str = ""   # 盘 - handicap value from analysis page (e.g., "半球", "一球")
+    home_water: str = ""        # 水1 - home team odds from Crown (冠) row
+    away_water: str = ""        # 水2 - away team odds from Crown (冠) row
+    analysis_url: str = ""      # URL of the Asian handicap analysis page
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for Excel serialization."""
@@ -66,6 +71,10 @@ class MatchData:
             'aust_odds': self.aust_odds,
             'bet365_odds': self.bet365_odds,
             'royal_odds': self.royal_odds,
+            'asian_handicap': self.asian_handicap,
+            'home_water': self.home_water,
+            'away_water': self.away_water,
+            'analysis_url': self.analysis_url,
         }
 
 
@@ -314,6 +323,23 @@ async def fetch_matches_with_browser(
                         const bet365_odds = cells[14] ? cells[14].innerText.trim() : '';
                         const royal_odds = cells[15] ? cells[15].innerText.trim() : '';
 
+                        // Extract Asian handicap analysis link (the "亚" link)
+                        let analysis_url = '';
+                        // Search all cells for a link containing "亚" or href containing "ya" or "odds"
+                        for (let j = 0; j < cells.length; j++) {
+                            const links = cells[j].querySelectorAll('a');
+                            for (const link of links) {
+                                const text = link.innerText.trim();
+                                const href = link.href || '';
+                                // Look for "亚" link or links with Asian handicap-related URLs
+                                if (text === '亚' || href.includes('/jczq/') || href.includes('ya')) {
+                                    analysis_url = href;
+                                    break;
+                                }
+                            }
+                            if (analysis_url) break;
+                        }
+
                         matches.push({
                             match_id,
                             league,
@@ -332,7 +358,8 @@ async def fetch_matches_with_browser(
                             william_odds,
                             aust_odds,
                             bet365_odds,
-                            royal_odds
+                            royal_odds,
+                            analysis_url
                         });
 
                     } catch (err) {
@@ -369,7 +396,8 @@ async def fetch_matches_with_browser(
                     william_odds=item.get('william_odds', ''),
                     aust_odds=item.get('aust_odds', ''),
                     bet365_odds=item.get('bet365_odds', ''),
-                    royal_odds=item.get('royal_odds', '')
+                    royal_odds=item.get('royal_odds', ''),
+                    analysis_url=item.get('analysis_url', '')
                 )
                 matches.append(match)
 
@@ -428,6 +456,232 @@ def _generate_fallback_matches(count: int = 15) -> List[MatchData]:
         )
         matches.append(match)
     print(f"生成了 {len(matches)} 条示例数据")
+    return matches
+
+
+async def fetch_asian_handicap_data(
+    matches: List[MatchData],
+    headless: bool = True,
+    timeout: int = 30000
+) -> List[MatchData]:
+    """
+    Fetch Asian handicap analysis data for each match by visiting their analysis pages.
+
+    This function navigates to each match's Asian handicap analysis page (via the "亚" link)
+    and extracts the Crown (冠) row data from the Initial Handicap (初始盘口) column.
+
+    Args:
+        matches: List of MatchData objects with analysis_url populated
+        headless: Run browser in headless mode
+        timeout: Page load timeout in milliseconds
+
+    Returns:
+        Updated MatchData objects with asian_handicap, home_water, away_water populated
+    """
+    from playwright.async_api import async_playwright, Error as PlaywrightError
+
+    print("\n" + "=" * 80)
+    print("正在获取亚洲盘口分析数据...")
+    print("=" * 80)
+
+    # Filter matches that have analysis URLs
+    matches_with_urls = [(i, m) for i, m in enumerate(matches) if m.analysis_url]
+
+    if not matches_with_urls:
+        print("⚠ 未找到任何分析页面链接")
+        return matches
+
+    print(f"找到 {len(matches_with_urls)} 个分析页面链接")
+
+    # Debug: Print the analysis URLs
+    for i, m in matches_with_urls[:3]:  # Print first 3
+        print(f"  - {m.match_id}: {m.analysis_url}")
+
+    try:
+        async with async_playwright() as p:
+            # Launch browser with anti-detection settings
+            browser = await p.chromium.launch(
+                headless=headless,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox',
+                ]
+            )
+
+            # Create context with realistic user agent
+            context = await browser.new_context(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                viewport={'width': 1920, 'height': 1080},
+                locale='zh-CN',
+            )
+
+            page = await context.new_page()
+
+            # Collect console messages
+            console_messages = []
+
+            async def handle_console(msg):
+                if msg.type in ['log', 'info', 'error']:
+                    console_messages.append(f"[{msg.type}] {msg.text}")
+
+            page.on('console', handle_console)
+
+            for idx, (match_index, match) in enumerate(matches_with_urls, 1):
+                try:
+                    print(f"[{idx}/{len(matches_with_urls)}] 正在获取 {match.match_id} 的亚洲盘口数据...")
+                    print(f"  URL: {match.analysis_url}")
+
+                    # Navigate to the analysis page
+                    await page.goto(match.analysis_url, wait_until='domcontentloaded', timeout=timeout)
+
+                    # Wait for content to load
+                    await asyncio.sleep(5)
+
+                    # Scroll to bottom to ensure all content is loaded (some sites lazy-load)
+                    await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                    await asyncio.sleep(2)
+
+                    # Scroll back to top
+                    await page.evaluate('window.scrollTo(0, 0)')
+                    await asyncio.sleep(2)
+
+                    # Try to wait for specific elements that might contain the odds data
+                    try:
+                        await page.wait_for_selector('table', timeout=5000)
+                    except:
+                        pass
+
+                    # Additional wait for dynamic content
+                    await asyncio.sleep(2)
+
+                    # Clear console messages
+                    console_messages.clear()
+
+                    # Get page title for debugging
+                    title = await page.title()
+                    print(f"  页面标题: {title}")
+
+                    # Extract data from the Crown (冠) row - INITIAL handicap (no arrow indicators)
+                    # The page has multiple nested tables; we need the one without trend arrows (↑/↓)
+                    extraction_script = """
+                    () => {
+                        const targetTable = document.getElementById('datatb');
+                        if (!targetTable) {
+                            return { handicap: '', homeWater: '', awayWater: '' };
+                        }
+
+                        const rows = targetTable.querySelectorAll('tbody tr');
+
+                        for (const row of rows) {
+                            const cells = row.querySelectorAll('td');
+                            if (cells.length < 5) continue;
+
+                            // Column 2 (index 1) contains bookmaker name
+                            const bookmakerCell = cells[1];
+                            const bookmakerLink = bookmakerCell.querySelector('a');
+                            let bookmakerName = '';
+                            let bookmakerTitle = '';
+
+                            if (bookmakerLink) {
+                                bookmakerName = bookmakerLink.innerText.trim();
+                                bookmakerTitle = bookmakerLink.title || bookmakerLink.getAttribute('title') || '';
+                            } else {
+                                bookmakerName = bookmakerCell.innerText.trim();
+                            }
+
+                            // Check if this is the Crown bookmaker (冠 with optional asterisk)
+                            if (bookmakerName.includes('冠') || bookmakerTitle.includes('冠')) {
+                                // Search through cells to find nested tables with handicap data
+                                // The INITIAL handicap table typically has cells WITHOUT arrow indicators
+                                for (let i = 0; i < cells.length; i++) {
+                                    const nestedTable = cells[i].querySelector('table.pl_table_data');
+                                    if (nestedTable) {
+                                        const nestedRow = nestedTable.querySelector('tr');
+                                        if (nestedRow) {
+                                            const nestedCells = nestedRow.querySelectorAll('td');
+                                            if (nestedCells.length >= 3) {
+                                                const cell0 = nestedCells[0].innerText.trim();
+                                                const cell2 = nestedCells[2].innerText.trim();
+
+                                                // Check if cells DON'T have arrow indicators (↑/↓/升/降)
+                                                // Initial handicap data is plain numbers without trends
+                                                const hasArrows = cell0.includes('↑') || cell0.includes('↓') ||
+                                                                 cell2.includes('↑') || cell2.includes('↓') ||
+                                                                 cell0.includes('升') || cell0.includes('降') ||
+                                                                 cell2.includes('升') || cell2.includes('降');
+
+                                                // Check if this looks like handicap data (decimal numbers)
+                                                const looksLikeOdds = /^[0-9.]+$/.test(cell0.replace('↑', '').replace('↓', '')) &&
+                                                                      /^[0-9.]+$/.test(cell2.replace('↑', '').replace('↓', ''));
+
+                                                if (looksLikeOdds && !hasArrows) {
+                                                    // This is likely the INITIAL handicap data (no arrows)
+                                                    const homeWater = cell0;
+                                                    const handicap = nestedCells[1].innerText.trim();
+                                                    const awayWater = cell2;
+                                                    return { handicap, homeWater, awayWater };
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // If no table without arrows found, fall back to first valid table
+                                for (let i = 0; i < cells.length; i++) {
+                                    const nestedTable = cells[i].querySelector('table.pl_table_data');
+                                    if (nestedTable) {
+                                        const nestedRow = nestedTable.querySelector('tr');
+                                        if (nestedRow) {
+                                            const nestedCells = nestedRow.querySelectorAll('td');
+                                            if (nestedCells.length >= 3) {
+                                                const homeWater = nestedCells[0].innerText.trim();
+                                                const handicap = nestedCells[1].innerText.trim();
+                                                const awayWater = nestedCells[2].innerText.trim();
+                                                return { handicap, homeWater, awayWater };
+                                            }
+                                        }
+                                    }
+                                }
+
+                                return { handicap: '', homeWater: '', awayWater: '' };
+                            }
+                        }
+
+                        return { handicap: '', homeWater: '', awayWater: '' };
+                    }
+                    """
+
+                    result = await page.evaluate(extraction_script)
+
+                    # Update the match data
+                    matches[match_index].asian_handicap = result.get('handicap', '')
+                    matches[match_index].home_water = result.get('homeWater', '')
+                    matches[match_index].away_water = result.get('awayWater', '')
+
+                    print(f"  ✓ 盘: {matches[match_index].asian_handicap or 'N/A'}, "
+                          f"水1: {matches[match_index].home_water or 'N/A'}, "
+                          f"水2: {matches[match_index].away_water or 'N/A'}")
+
+                    # Small delay to be respectful to the server
+                    await asyncio.sleep(0.5)
+
+                except PlaywrightError as e:
+                    print(f"  ✗ 无法获取 {match.match_id} 的数据: {e}")
+                except Exception as e:
+                    print(f"  ✗ 处理 {match.match_id} 时出错: {e}")
+
+            await browser.close()
+
+    except PlaywrightError as e:
+        print(f"浏览器自动化失败: {e}")
+    except Exception as e:
+        print(f"获取亚洲盘口数据时出错: {e}")
+
+    print("=" * 80)
+    print(f"✓ 亚洲盘口数据获取完成")
+    print("=" * 80)
+
     return matches
 
 
@@ -558,10 +812,18 @@ def add_match_data(ws, start_row: int, match: MatchData) -> int:
     ws.cell(row=current_row, column=1, value=match.match_id)
     ws.cell(row=current_row, column=2, value=match.handicap)
 
-    # Add odds data if available
-    if match.win_odds:
+    # Add Asian handicap data if available (replaces the odds data)
+    if match.asian_handicap:
+        ws.cell(row=current_row, column=2, value=match.asian_handicap)  # 盘
+    if match.home_water:
+        ws.cell(row=current_row, column=3, value=match.home_water)  # 水1
+    if match.away_water:
+        ws.cell(row=current_row, column=4, value=match.away_water)  # 水2
+
+    # Add odds data if available (only if Asian handicap data is not present)
+    if not match.asian_handicap and match.win_odds:
         ws.cell(row=current_row, column=3, value=match.win_odds)
-    if match.let_odds:
+    if not match.asian_handicap and match.let_odds:
         ws.cell(row=current_row, column=4, value=match.let_odds)
 
     # Style match ID row
@@ -600,7 +862,8 @@ def generate_browser_template(
     url: str = BASE_URL,
     headless: bool = True,
     max_matches: Optional[int] = None,
-    fetch_enhanced_odds: bool = False
+    fetch_enhanced_odds: bool = False,
+    fetch_asian_handicap: bool = False
 ):
     """
     Generate Excel betting analysis template using browser automation.
@@ -611,6 +874,7 @@ def generate_browser_template(
         headless: Run browser in headless mode
         max_matches: Maximum number of matches to include
         fetch_enhanced_odds: Whether to fetch enhanced odds data (slower)
+        fetch_asian_handicap: Whether to fetch Asian handicap analysis data
     """
     print("=" * 80)
     print("浏览器自动化 - 足球彩票分析模板生成器")
@@ -633,6 +897,10 @@ def generate_browser_template(
         print("\n正在获取增强赔率数据...")
         match_ids = [m.match_id for m in matches]
         odds_data = asyncio.run(fetch_enhanced_odds_data(match_ids))
+
+    # Optionally fetch Asian handicap analysis data
+    if fetch_asian_handicap:
+        matches = asyncio.run(fetch_asian_handicap_data(matches, headless=headless))
 
     # Create workbook and worksheet
     wb, ws = create_template_workbook()
@@ -662,6 +930,7 @@ def generate_browser_template(
         ["抓取方式", "浏览器自动化 (Playwright)"],
         ["比赛数量", len(matches)],
         ["增强赔率数据", "是" if fetch_enhanced_odds else "否"],
+        ["亚洲盘口分析", "是" if fetch_asian_handicap else "否"],
     ]
 
     for row_idx, (label, value) in enumerate(info_data, start=1):
@@ -713,6 +982,11 @@ def main():
         action="store_true",
         help="获取增强赔率数据（更慢但更全面）"
     )
+    parser.add_argument(
+        "--asian-handicap",
+        action="store_true",
+        help="获取亚洲盘口分析数据（点击亚盘分析页面）"
+    )
 
     args = parser.parse_args()
 
@@ -721,7 +995,8 @@ def main():
         url=args.url,
         headless=not args.no_headless,
         max_matches=args.max_matches,
-        fetch_enhanced_odds=args.enhanced_odds
+        fetch_enhanced_odds=args.enhanced_odds,
+        fetch_asian_handicap=args.asian_handicap
     )
 
 
