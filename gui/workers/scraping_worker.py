@@ -117,7 +117,11 @@ class ScrapingWorker(QThread):
         # Setup bundled browser path if running from PyInstaller bundle
         _setup_bundled_browser()
 
-        from browser_bet_scraper import fetch_matches_with_browser, fetch_asian_handicap_data
+        from browser_bet_scraper import (
+            fetch_matches_with_browser,
+            fetch_asian_handicap_data,
+            fetch_euro_kelly_data,
+        )
 
         self.progress_updated.emit("正在初始化浏览器...")
 
@@ -176,6 +180,10 @@ class ScrapingWorker(QThread):
                 if not self._is_running:
                     break
                 self.match_fetched.emit(match)
+
+            if self._is_running:
+                self.progress_updated.emit("正在获取百家欧赔即时凯利数据...")
+                matches = await fetch_euro_kelly_data(matches, self.headless)
 
         self.progress_updated.emit(f"完成！共获取 {len(matches)} 场比赛")
         return matches
