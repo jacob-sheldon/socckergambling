@@ -141,8 +141,15 @@ class MainWindow(QMainWindow):
 
     def _on_match_fetched(self, match):
         """Handle individual match fetched from worker."""
+        # Upsert by match_id to avoid duplicates when data refreshes.
+        for idx, existing in enumerate(self.matches):
+            if existing.match_id == match.match_id:
+                self.matches[idx] = match
+                break
+        else:
+            self.matches.append(match)
+
         self.match_table.add_match(match)
-        self.matches.append(match)
 
     def _on_scraping_complete(self, matches):
         """Handle scraping completion from worker."""
@@ -150,6 +157,13 @@ class MainWindow(QMainWindow):
         self.control_panel.set_scraping_enabled(True)
         self.export_action.setEnabled(True)
         self.control_panel.set_export_enabled(True)
+
+        # Refresh table to ensure latest data (asian handicap / euro kelly).
+        self.matches = matches
+        self.match_table.clear_matches()
+        for match in matches:
+            self.match_table.add_match(match)
+        self.match_table.scrollToTop()
 
         self.status_bar.showMessage(f"完成！共获取 {len(matches)} 场比赛", 5000)
 
