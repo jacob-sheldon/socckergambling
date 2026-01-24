@@ -106,6 +106,8 @@ class MatchData:
     # European odds (百家欧赔) - Kelly index from Crown (冠) row
     euro_kelly_win: str = ""    # 即时凯利 胜
     euro_kelly_lose: str = ""   # 即时凯利 负
+    euro_kelly_win_2: str = ""  # 即时凯利 第二行 胜
+    euro_kelly_lose_2: str = "" # 即时凯利 第二行 负
     is_fallback: bool = False   # True if this is placeholder data from error fallback
 
     def to_dict(self) -> Dict[str, Any]:
@@ -136,6 +138,8 @@ class MatchData:
             'euro_odds_url': self.euro_odds_url,
             'euro_kelly_win': self.euro_kelly_win,
             'euro_kelly_lose': self.euro_kelly_lose,
+            'euro_kelly_win_2': self.euro_kelly_win_2,
+            'euro_kelly_lose_2': self.euro_kelly_lose_2,
         }
 
 
@@ -884,22 +888,40 @@ async def fetch_euro_kelly_data(
                             return { win: '', lose: '' };
                         }
 
-                        const currentRow = kellyTable.querySelector('tr.td_show_cp') || kellyTable.querySelector('tr');
-                        if (!currentRow) {
-                            return { win: '', lose: '' };
+                        const rows = Array.from(kellyTable.querySelectorAll('tr'));
+                        if (!rows.length) {
+                            return { win: '', lose: '', win2: '', lose2: '' };
                         }
 
-                        const kellyCells = currentRow.querySelectorAll('td');
-                        if (kellyCells.length >= 3) {
-                            const win = (kellyCells[0].textContent || '').trim();
-                            const lose = (kellyCells[2].textContent || '').trim();
-                            return { win, lose };
+                        const extractRow = (row) => {
+                            if (!row) return { win: '', lose: '' };
+                            const tds = row.querySelectorAll('td');
+                            if (tds.length >= 3) {
+                                return {
+                                    win: (tds[0].textContent || '').trim(),
+                                    lose: (tds[2].textContent || '').trim()
+                                };
+                            }
+                            return { win: '', lose: '' };
+                        };
+
+                        const isNumeric = (value) => /^\\d+(\\.\\d+)?$/.test(value);
+                        const candidates = [];
+                        for (const row of rows) {
+                            const extracted = extractRow(row);
+                            if (isNumeric(extracted.win) && isNumeric(extracted.lose)) {
+                                candidates.push(extracted);
+                            }
                         }
-                        return { win: '', lose: '' };
+
+                        const first = candidates[0] || extractRow(kellyTable.querySelector('tr.td_show_cp')) || { win: '', lose: '' };
+                        const second = candidates.length > 1 ? candidates[1] : { win: '', lose: '' };
+
+                        return { win: first.win, lose: first.lose, win2: second.win, lose2: second.lose };
                     }
                 }
 
-                return { win: '', lose: '' };
+                return { win: '', lose: '', win2: '', lose2: '' };
             }
             """
 
@@ -979,9 +1001,13 @@ async def fetch_euro_kelly_data(
 
                         matches[match_index].euro_kelly_win = result.get('win', '')
                         matches[match_index].euro_kelly_lose = result.get('lose', '')
+                        matches[match_index].euro_kelly_win_2 = result.get('win2', '')
+                        matches[match_index].euro_kelly_lose_2 = result.get('lose2', '')
 
                         print(f"  ✓ 凯利胜: {matches[match_index].euro_kelly_win or 'N/A'}, "
-                              f"凯利负: {matches[match_index].euro_kelly_lose or 'N/A'}")
+                              f"凯利负: {matches[match_index].euro_kelly_lose or 'N/A'}, "
+                              f"凯利胜2: {matches[match_index].euro_kelly_win_2 or 'N/A'}, "
+                              f"凯利负2: {matches[match_index].euro_kelly_lose_2 or 'N/A'}")
 
                         await asyncio.sleep(0.5)
 
@@ -1171,6 +1197,10 @@ def add_match_data(ws, start_row: int, match: MatchData) -> int:
                 ws.cell(row=current_row, column=3, value=match.euro_kelly_win)
             if match.euro_kelly_lose:
                 ws.cell(row=current_row, column=4, value=match.euro_kelly_lose)
+            if match.euro_kelly_win_2:
+                ws.cell(row=current_row, column=6, value=match.euro_kelly_win_2)
+            if match.euro_kelly_lose_2:
+                ws.cell(row=current_row, column=7, value=match.euro_kelly_lose_2)
 
         # Style the row
         for col_idx in range(1, 19):
