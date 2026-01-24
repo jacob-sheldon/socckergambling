@@ -3,11 +3,13 @@ Control panel widget with input fields, checkboxes, and action buttons.
 """
 
 import os
+import sys
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QLineEdit, QPushButton,
     QSpinBox, QCheckBox, QFileDialog
 )
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import pyqtSignal, QProcess
 
 
 class ControlPanel(QWidget):
@@ -25,8 +27,13 @@ class ControlPanel(QWidget):
         # Default values
         self.default_url = "https://live.500.com/"
         self.default_output = os.path.expanduser("~/Desktop/live_betting_template.xlsx")
+        self.browser_ready = False
+        self._scraping_enabled = True
+        self._installing_browser = False
+        self._install_process = None
 
         self._init_ui()
+        self._update_browser_status()
 
     def _init_ui(self):
         """Initialize the UI components."""
@@ -63,10 +70,18 @@ class ControlPanel(QWidget):
         layout.addWidget(self.headless_check, 3, 1)
 
         self.enhanced_odds_check = QCheckBox("增强赔率数据 (较慢)")
-        layout.addWidget(self.enhanced_odds_check, 3, 2)
+        self.enhanced_odds_check.setVisible(False)
 
         self.asian_handicap_check = QCheckBox("亚洲盘口分析 (慢)")
         layout.addWidget(self.asian_handicap_check, 4, 1)
+
+        # Row 4: Browser install
+        self.browser_status_label = QLabel("")
+        layout.addWidget(self.browser_status_label, 4, 2)
+
+        self.install_browser_btn = QPushButton("安装浏览器")
+        self.install_browser_btn.clicked.connect(self._install_browser)
+        layout.addWidget(self.install_browser_btn, 4, 0)
 
         # Row 5: Action buttons
         self.start_btn = QPushButton("开始抓取")
@@ -95,6 +110,11 @@ class ControlPanel(QWidget):
 
     def _on_start_clicked(self):
         """Emit signal with scraping options."""
+        if self._installing_browser:
+            return
+        if not self.browser_ready:
+            self._install_browser()
+            return
         options = {
             'url': self.url_edit.text(),
             'output': self.output_edit.text(),
@@ -107,11 +127,8 @@ class ControlPanel(QWidget):
 
     def set_scraping_enabled(self, enabled: bool):
         """Enable or disable the start button during scraping."""
-        self.start_btn.setEnabled(enabled)
-        if enabled:
-            self.start_btn.setText("开始抓取")
-        else:
-            self.start_btn.setText("抓取中...")
+        self._scraping_enabled = enabled
+        self._update_start_button()
 
     def set_export_enabled(self, enabled: bool):
         """Enable or disable the export button."""
@@ -120,3 +137,88 @@ class ControlPanel(QWidget):
     def get_output_filename(self) -> str:
         """Get the current output filename."""
         return self.output_edit.text()
+
+    def _update_start_button(self):
+        """Update start button state based on browser/install/scrape status."""
+        if self._installing_browser:
+            self.start_btn.setEnabled(False)
+            self.start_btn.setText("安装浏览器中...")
+            return
+
+        if not self.browser_ready:
+            self.start_btn.setEnabled(True)
+            self.start_btn.setText("安装浏览器")
+            return
+
+        if self._scraping_enabled:
+            self.start_btn.setEnabled(True)
+            self.start_btn.setText("开始抓取")
+        else:
+            self.start_btn.setEnabled(False)
+            self.start_btn.setText("抓取中...")
+
+    def _get_playwright_cache_dir(self) -> Path:
+        """Get Playwright cache directory for current platform."""
+        if sys.platform.startswith("win"):
+            base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+            return base / "ms-playwright"
+        if sys.platform == "darwin":
+            return Path.home() / "Library" / "Caches" / "ms-playwright"
+        return Path.home() / ".cache" / "ms-playwright"
+
+    def _is_browser_installed(self) -> bool:
+        """Check if Playwright Chromium is installed."""
+        cache_dir = self._get_playwright_cache_dir()
+        if not cache_dir.exists():
+            return False
+
+        for item in cache_dir.iterdir():
+            if not item.is_dir():
+                continue
+            if item.name.startswith("chromium-") and "headless" not in item.name:
+                for sub in item.iterdir():
+                    if sub.is_dir() and sub.name.startswith("chrome-"):
+                        return True
+        return False
+
+    def _update_browser_status(self):
+        """Update browser status label and button states."""
+        self.browser_ready = self._is_browser_installed()
+        if self.browser_ready:
+            self.browser_status_label.setText("浏览器已安装")
+        else:
+            self.browser_status_label.setText("未安装浏览器 (需安装 Chromium)")
+
+        self.install_browser_btn.setVisible(not self.browser_ready)
+        self.install_browser_btn.setEnabled(not self.browser_ready and not self._installing_browser)
+        self._update_start_button()
+
+    def _install_browser(self):
+        """Install Playwright Chromium browser."""
+        if self._installing_browser:
+            return
+
+        self._installing_browser = True
+        self.install_browser_btn.setEnabled(False)
+        self._update_start_button()
+        self.browser_status_label.setText("正在安装浏览器...")
+
+        self._install_process = QProcess(self)
+        if getattr(sys, "frozen", False):
+            self._install_process.setProgram("playwright")
+            self._install_process.setArguments(["install", "chromium"])
+        else:
+            self._install_process.setProgram(sys.executable)
+            self._install_process.setArguments(["-m", "playwright", "install", "chromium"])
+
+        self._install_process.finished.connect(self._on_install_finished)
+        self._install_process.start()
+
+    def _on_install_finished(self, exit_code, _exit_status):
+        """Handle browser install completion."""
+        self._installing_browser = False
+        self._update_browser_status()
+        if exit_code == 0:
+            self.browser_status_label.setText("浏览器安装完成")
+        else:
+            self.browser_status_label.setText("浏览器安装失败，请重试")

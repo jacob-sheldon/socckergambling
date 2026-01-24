@@ -3,20 +3,25 @@ import os
 import shutil
 from pathlib import Path
 
+# Toggle to bundle Playwright browsers into the app package.
+BUNDLE_PLAYWRIGHT = False
 
-# Get Playwright browser paths
-playwright_cache = Path.home() / 'Library' / 'Caches' / 'ms-playwright'
+
 chromium_path = None
 headless_shell_path = None
 
-# Find browser directories
-if playwright_cache.exists():
-    for item in playwright_cache.iterdir():
-        if item.is_dir():
-            if item.name.startswith('chromium-') and 'headless' not in item.name:
-                chromium_path = item
-            elif item.name.startswith('chromium_headless_shell-'):
-                headless_shell_path = item
+if BUNDLE_PLAYWRIGHT:
+    # Get Playwright browser paths (macOS default cache)
+    playwright_cache = Path.home() / 'Library' / 'Caches' / 'ms-playwright'
+
+    # Find browser directories
+    if playwright_cache.exists():
+        for item in playwright_cache.iterdir():
+            if item.is_dir():
+                if item.name.startswith('chromium-') and 'headless' not in item.name:
+                    chromium_path = item
+                elif item.name.startswith('chromium_headless_shell-'):
+                    headless_shell_path = item
 
 # Build datas list
 datas_list = [
@@ -43,7 +48,10 @@ if BROWSER_SRC_PATHS:
         print(f"[PyInstaller] Will bundle Playwright {browser_type} from: {path} ({size_mb:.1f} MB)")
     print(f"[PyInstaller] Total browser size: {total_size:.1f} MB")
 else:
-    print("[PyInstaller] WARNING: Playwright browsers not found. Bundle will require separate browser installation.")
+    if BUNDLE_PLAYWRIGHT:
+        print("[PyInstaller] WARNING: Playwright browsers not found. Bundle will require separate browser installation.")
+    else:
+        print("[PyInstaller] Playwright browsers not bundled. Users must install Chromium on first run.")
 
 
 a = Analysis(
@@ -110,7 +118,7 @@ app = BUNDLE(
 # Post-build: Copy Playwright browsers into the app bundle
 def copy_browser_to_bundle():
     """Copy the Playwright browsers into the built .app bundle."""
-    if not BROWSER_SRC_PATHS:
+    if not BUNDLE_PLAYWRIGHT or not BROWSER_SRC_PATHS:
         print("[Post-Build] No browsers to bundle (not found or paths not set)")
         return
 
