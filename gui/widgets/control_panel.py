@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QLineEdit, QPushButton,
-    QSpinBox, QCheckBox, QFileDialog
+    QSpinBox, QCheckBox, QFileDialog, QProgressBar
 )
 from PyQt6.QtCore import pyqtSignal, QProcess
 
@@ -64,7 +64,7 @@ class ControlPanel(QWidget):
         self.max_matches_spin.setValue(0)  # 0 means all
         layout.addWidget(self.max_matches_spin, 2, 1)
 
-        # Row 3: Options
+        # Row 3: Options (two checkboxes side by side)
         self.headless_check = QCheckBox("无头模式 (隐藏浏览器)")
         self.headless_check.setChecked(True)
         layout.addWidget(self.headless_check, 3, 1)
@@ -73,11 +73,19 @@ class ControlPanel(QWidget):
         self.enhanced_odds_check.setVisible(False)
 
         self.asian_handicap_check = QCheckBox("亚洲盘口分析 (慢)")
-        layout.addWidget(self.asian_handicap_check, 4, 1)
+        layout.addWidget(self.asian_handicap_check, 3, 2)  # Moved to column 2, row 3
 
-        # Row 4: Browser install
+        # Row 4: Browser status label
         self.browser_status_label = QLabel("")
-        layout.addWidget(self.browser_status_label, 4, 2)
+        layout.addWidget(self.browser_status_label, 4, 1)
+
+        # Progress bar (hidden by default, shares position with start_btn)
+        self.install_progress = QProgressBar()
+        self.install_progress.setTextVisible(True)
+        self.install_progress.setRange(0, 100)  # 0-100%
+        self.install_progress.setValue(0)
+        self.install_progress.setVisible(False)
+        layout.addWidget(self.install_progress, 5, 1)  # Shares position with start_btn
 
         # Row 5: Action buttons
         self.start_btn = QPushButton("开始抓取")
@@ -194,7 +202,12 @@ class ControlPanel(QWidget):
 
         self._installing_browser = True
         self._update_start_button()
-        self.browser_status_label.setText("正在安装浏览器...")
+
+        # Hide start button and show progress bar
+        self.start_btn.setVisible(False)
+        self.install_progress.setVisible(True)
+        self.install_progress.setValue(0)
+        self.install_progress.setFormat("准备下载...")
 
         self._install_process = QProcess(self)
         if getattr(sys, "frozen", False):
@@ -204,14 +217,69 @@ class ControlPanel(QWidget):
             self._install_process.setProgram(sys.executable)
             self._install_process.setArguments(["-m", "playwright", "install", "chromium"])
 
+        # Connect signals
+        self._install_process.readyReadStandardOutput.connect(self._on_install_output)
+        self._install_process.readyReadStandardError.connect(self._on_install_error)
         self._install_process.finished.connect(self._on_install_finished)
         self._install_process.start()
+
+    def _on_install_output(self):
+        """Handle installation process output and update progress."""
+        data = self._install_process.readAllStandardOutput()
+        output = bytes(data).decode("utf-8", errors="ignore").strip()
+
+        if not output:
+            return
+
+        # Parse playwright install output to update progress
+        output_lower = output.lower()
+
+        # Downloading phase
+        if "downloading" in output_lower or "download" in output_lower:
+            self.install_progress.setFormat("下载中...")
+            self.install_progress.setValue(30)
+
+        # Extracting phase
+        elif "extracting" in output_lower or "extract" in output_lower:
+            self.install_progress.setFormat("解压中...")
+            self.install_progress.setValue(60)
+
+        # Installing phase
+        elif "installing" in output_lower or "installed" in output_lower:
+            self.install_progress.setFormat("安装中...")
+            self.install_progress.setValue(90)
+
+        # Completed
+        elif "chromium" in output_lower and "installed" in output_lower:
+            self.install_progress.setValue(100)
+            self.install_progress.setFormat("完成")
+
+    def _on_install_error(self):
+        """Handle installation process error output."""
+        data = self._install_process.readAllStandardError()
+        error = bytes(data).decode("utf-8", errors="ignore").strip()
+
+        if error:
+            # Show error in progress bar format
+            self.install_progress.setFormat(f"错误: {error[:50]}...")
 
     def _on_install_finished(self, exit_code, _exit_status):
         """Handle browser install completion."""
         self._installing_browser = False
-        self._update_browser_status()
+
         if exit_code == 0:
-            self.browser_status_label.setText("浏览器安装完成")
+            self.install_progress.setValue(100)
+            self.install_progress.setFormat("安装完成")
         else:
-            self.browser_status_label.setText("浏览器安装失败，请重试")
+            self.install_progress.setFormat("安装失败")
+
+        # Hide progress bar after a delay and show start button
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(3000, self._restore_start_button)
+
+        self._update_browser_status()
+
+    def _restore_start_button(self):
+        """Restore start button and hide progress bar after installation."""
+        self.install_progress.setVisible(False)
+        self.start_btn.setVisible(True)
