@@ -79,10 +79,6 @@ class ControlPanel(QWidget):
         self.browser_status_label = QLabel("")
         layout.addWidget(self.browser_status_label, 4, 2)
 
-        self.install_browser_btn = QPushButton("安装浏览器")
-        self.install_browser_btn.clicked.connect(self._install_browser)
-        layout.addWidget(self.install_browser_btn, 4, 0)
-
         # Row 5: Action buttons
         self.start_btn = QPushButton("开始抓取")
         self.start_btn.setFixedHeight(40)
@@ -189,8 +185,6 @@ class ControlPanel(QWidget):
         else:
             self.browser_status_label.setText("未安装浏览器 (需安装 Chromium)")
 
-        self.install_browser_btn.setVisible(not self.browser_ready)
-        self.install_browser_btn.setEnabled(not self.browser_ready and not self._installing_browser)
         self._update_start_button()
 
     def _install_browser(self):
@@ -199,7 +193,6 @@ class ControlPanel(QWidget):
             return
 
         self._installing_browser = True
-        self.install_browser_btn.setEnabled(False)
         self._update_start_button()
         self.browser_status_label.setText("正在安装浏览器...")
 
