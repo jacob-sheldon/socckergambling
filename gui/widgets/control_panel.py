@@ -2,14 +2,70 @@
 Control panel widget with input fields, checkboxes, and action buttons.
 """
 
+import io
 import os
 import sys
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QGridLayout, QLabel, QLineEdit, QPushButton,
     QSpinBox, QCheckBox, QFileDialog, QProgressBar
 )
-from PyQt6.QtCore import pyqtSignal, QProcess
+from PyQt6.QtCore import pyqtSignal, QProcess, QThread
+
+
+class _StreamEmitter(io.TextIOBase):
+    """Stream wrapper that emits text chunks via callback."""
+
+    def __init__(self, emit_callback):
+        super().__init__()
+        self._emit = emit_callback
+
+    def write(self, s):
+        if s:
+            self._emit(str(s))
+        return len(s)
+
+    def flush(self):
+        return None
+
+
+class PlaywrightInstallThread(QThread):
+    """Run Playwright install in-process to avoid external CLI dependency."""
+
+    output = pyqtSignal(str)
+    error = pyqtSignal(str)
+    done = pyqtSignal(int)
+
+    def run(self):
+        exit_code = 1
+        try:
+            from playwright.__main__ import main as playwright_main
+        except Exception as exc:
+            self.error.emit(f"无法导入 Playwright: {exc}")
+            self.done.emit(exit_code)
+            return
+
+        argv_backup = sys.argv[:]
+        sys.argv = ["playwright", "install", "chromium"]
+        try:
+            stdout_stream = _StreamEmitter(self.output.emit)
+            stderr_stream = _StreamEmitter(self.error.emit)
+            with redirect_stdout(stdout_stream), redirect_stderr(stderr_stream):
+                try:
+                    result = playwright_main()
+                    exit_code = 0 if result is None else int(result)
+                except SystemExit as exc:
+                    if isinstance(exc.code, int):
+                        exit_code = exc.code
+                    else:
+                        exit_code = 1
+        except Exception as exc:
+            self.error.emit(f"安装异常: {exc}")
+            exit_code = 1
+        finally:
+            sys.argv = argv_backup
+            self.done.emit(exit_code)
 
 
 class ControlPanel(QWidget):
@@ -31,6 +87,7 @@ class ControlPanel(QWidget):
         self._scraping_enabled = True
         self._installing_browser = False
         self._install_process = None
+        self._install_thread = None
 
         self._init_ui()
         self._update_browser_status()
@@ -209,63 +266,83 @@ class ControlPanel(QWidget):
         self.install_progress.setValue(0)
         self.install_progress.setFormat("准备下载...")
 
-        self._install_process = QProcess(self)
         if getattr(sys, "frozen", False):
-            self._install_process.setProgram("playwright")
-            self._install_process.setArguments(["install", "chromium"])
+            # Run Playwright install via Python module to avoid external CLI dependency.
+            self._install_thread = PlaywrightInstallThread()
+            self._install_thread.output.connect(self._on_install_output_text)
+            self._install_thread.error.connect(self._on_install_error_text)
+            self._install_thread.done.connect(self._on_install_finished)
+            self._install_thread.finished.connect(self._install_thread.deleteLater)
+            self._install_thread.start()
         else:
+            # Use python -m playwright for source runs to avoid thread/GUI edge cases.
+            self._install_process = QProcess(self)
             self._install_process.setProgram(sys.executable)
             self._install_process.setArguments(["-m", "playwright", "install", "chromium"])
+            self._install_process.readyReadStandardOutput.connect(self._on_install_output_process)
+            self._install_process.readyReadStandardError.connect(self._on_install_error_process)
+            self._install_process.finished.connect(self._on_install_finished)
+            self._install_process.start()
 
-        # Connect signals
-        self._install_process.readyReadStandardOutput.connect(self._on_install_output)
-        self._install_process.readyReadStandardError.connect(self._on_install_error)
-        self._install_process.finished.connect(self._on_install_finished)
-        self._install_process.start()
-
-    def _on_install_output(self):
-        """Handle installation process output and update progress."""
-        data = self._install_process.readAllStandardOutput()
-        output = bytes(data).decode("utf-8", errors="ignore").strip()
-
+    def _handle_install_output(self, output: str):
+        """Parse install output and update progress."""
         if not output:
             return
 
-        # Parse playwright install output to update progress
         output_lower = output.lower()
 
-        # Downloading phase
         if "downloading" in output_lower or "download" in output_lower:
             self.install_progress.setFormat("下载中...")
             self.install_progress.setValue(30)
-
-        # Extracting phase
         elif "extracting" in output_lower or "extract" in output_lower:
             self.install_progress.setFormat("解压中...")
             self.install_progress.setValue(60)
-
-        # Installing phase
         elif "installing" in output_lower or "installed" in output_lower:
             self.install_progress.setFormat("安装中...")
             self.install_progress.setValue(90)
-
-        # Completed
         elif "chromium" in output_lower and "installed" in output_lower:
             self.install_progress.setValue(100)
             self.install_progress.setFormat("完成")
 
-    def _on_install_error(self):
-        """Handle installation process error output."""
+    def _is_ignorable_install_message(self, text: str) -> bool:
+        """Filter out known non-fatal warnings (e.g., Node deprecations)."""
+        if not text:
+            return True
+        text_upper = text.upper()
+        if "DEP0169" in text_upper:
+            return True
+        if "DEPRECATIONWARNING" in text_upper and "DEP0169" in text_upper:
+            return True
+        return False
+
+    def _on_install_output_text(self, output: str):
+        """Handle installation output text."""
+        self._handle_install_output(output.strip())
+
+    def _on_install_error_text(self, error: str):
+        """Handle installation error output text."""
+        if error and not self._is_ignorable_install_message(error):
+            self.install_progress.setFormat(f"错误: {error.strip()[:50]}...")
+
+    def _on_install_output_process(self):
+        """Handle installation output from QProcess."""
+        data = self._install_process.readAllStandardOutput()
+        output = bytes(data).decode("utf-8", errors="ignore")
+        self._handle_install_output(output.strip())
+
+    def _on_install_error_process(self):
+        """Handle installation error output from QProcess."""
         data = self._install_process.readAllStandardError()
         error = bytes(data).decode("utf-8", errors="ignore").strip()
-
-        if error:
-            # Show error in progress bar format
+        if error and not self._is_ignorable_install_message(error):
             self.install_progress.setFormat(f"错误: {error[:50]}...")
 
-    def _on_install_finished(self, exit_code, _exit_status):
+    def _on_install_finished(self, exit_code, _exit_status=None):
         """Handle browser install completion."""
         self._installing_browser = False
+        self._install_thread = None
+        self._install_process = None
+        self._install_thread = None
 
         if exit_code == 0:
             self.install_progress.setValue(100)
