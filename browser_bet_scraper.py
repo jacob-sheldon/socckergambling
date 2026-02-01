@@ -522,7 +522,6 @@ async def fetch_matches_with_browser(
             return matches
 
     except PlaywrightError as e:
-        global LAST_SCRAPE_ERROR
         import traceback
         LAST_SCRAPE_ERROR = traceback.format_exc().strip()
         print(f"Playwright 错误: {e}")
@@ -532,7 +531,6 @@ async def fetch_matches_with_browser(
             match.is_fallback = True
         return fallback_data
     except Exception as e:
-        global LAST_SCRAPE_ERROR
         import traceback
         LAST_SCRAPE_ERROR = traceback.format_exc().strip()
         print(f"浏览器自动化失败: {e}")
