@@ -18,6 +18,19 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
 
 
+LAST_SCRAPE_ERROR = ""
+
+
+def _get_default_playwright_cache_dir() -> Path:
+    """Return the default Playwright browser cache directory for this platform."""
+    if sys.platform.startswith("win"):
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "ms-playwright"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    return Path.home() / ".cache" / "ms-playwright"
+
+
 def _setup_bundled_browser():
     """
     Configure Playwright to use the bundled browser in the .app package.
@@ -57,6 +70,13 @@ def _setup_bundled_browser():
     if browsers_path:
         os.environ['PLAYWRIGHT_BROWSERS_PATH'] = str(browsers_path)  # Directory containing chromium-*
         print(f"[DEBUG] Set PLAYWRIGHT_BROWSERS_PATH to: {browsers_path}")
+        return True
+
+    # Fall back to system cache if browsers were installed separately.
+    cache_dir = _get_default_playwright_cache_dir()
+    if cache_dir.exists():
+        os.environ.setdefault('PLAYWRIGHT_BROWSERS_PATH', str(cache_dir))
+        print(f"[DEBUG] Using Playwright cache from system: {cache_dir}")
         return True
 
     print(f"[DEBUG] Could not find bundled browsers. sys.frozen={sys.frozen}, _MEIPASS={getattr(sys, '_MEIPASS', 'N/A')}, executable={sys.executable}")
@@ -253,6 +273,8 @@ async def fetch_matches_with_browser(
     Returns:
         List of MatchData objects with comprehensive match information
     """
+    global LAST_SCRAPE_ERROR
+    LAST_SCRAPE_ERROR = ""
     from playwright.async_api import async_playwright, Error as PlaywrightError
 
     print(f"正在从 {url} 获取竞彩比分数据...")
@@ -500,6 +522,9 @@ async def fetch_matches_with_browser(
             return matches
 
     except PlaywrightError as e:
+        global LAST_SCRAPE_ERROR
+        import traceback
+        LAST_SCRAPE_ERROR = traceback.format_exc().strip()
         print(f"Playwright 错误: {e}")
         print("回退到生成示例数据...")
         fallback_data = _generate_fallback_matches()
@@ -507,6 +532,9 @@ async def fetch_matches_with_browser(
             match.is_fallback = True
         return fallback_data
     except Exception as e:
+        global LAST_SCRAPE_ERROR
+        import traceback
+        LAST_SCRAPE_ERROR = traceback.format_exc().strip()
         print(f"浏览器自动化失败: {e}")
         print("回退到生成示例数据...")
         fallback_data = _generate_fallback_matches()

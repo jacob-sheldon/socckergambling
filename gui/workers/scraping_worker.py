@@ -11,6 +11,16 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from typing import List, Optional
 
 
+def _get_default_playwright_cache_dir() -> Path:
+    """Return the default Playwright browser cache directory for this platform."""
+    if sys.platform.startswith("win"):
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "ms-playwright"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    return Path.home() / ".cache" / "ms-playwright"
+
+
 def _setup_bundled_browser():
     """
     Configure Playwright to use the bundled browser in the .app package.
@@ -50,6 +60,13 @@ def _setup_bundled_browser():
     if browsers_path:
         os.environ['PLAYWRIGHT_BROWSERS_PATH'] = str(browsers_path)  # Directory containing chromium-*
         print(f"[DEBUG] Set PLAYWRIGHT_BROWSERS_PATH to: {browsers_path}")
+        return True
+
+    # Fall back to system cache if browsers were installed separately.
+    cache_dir = _get_default_playwright_cache_dir()
+    if cache_dir.exists():
+        os.environ.setdefault('PLAYWRIGHT_BROWSERS_PATH', str(cache_dir))
+        print(f"[DEBUG] Using Playwright cache from system: {cache_dir}")
         return True
 
     print(f"[DEBUG] Could not find bundled browsers. sys.frozen={sys.frozen}, _MEIPASS={getattr(sys, '_MEIPASS', 'N/A')}, executable={sys.executable}")
@@ -148,15 +165,25 @@ class ScrapingWorker(QThread):
         # Check if we received fallback data
         if matches and matches[0].is_fallback:
             print(f"[DEBUG GUI] Fallback data detected! is_fallback={matches[0].is_fallback}")
+            try:
+                import browser_bet_scraper
+                last_error = getattr(browser_bet_scraper, "LAST_SCRAPE_ERROR", "")
+            except Exception:
+                last_error = ""
+            detail = ""
+            if last_error:
+                detail = f"\n\n详细错误:\n{last_error[:600]}"
             error_msg = (
                 "浏览器自动化失败，已回退到示例数据。\n\n"
                 "这可能是因为:\n"
                 "• 网络连接问题\n"
                 "• Playwright 浏览器未安装\n"
-                "• 目标网站无法访问\n\n"
-                "请运行 'uv run playwright install chromium' 安装浏览器。"
+                "• 目标网站无法访问或被拦截\n\n"
+                "如果已安装仍失败，可删除浏览器缓存后重试。\n"
+                "Windows 缓存路径: %LOCALAPPDATA%\\ms-playwright\n"
+                "macOS 缓存路径: ~/Library/Caches/ms-playwright"
             )
-            self.error_occurred.emit(error_msg)
+            self.error_occurred.emit(error_msg + detail)
             return []
 
         # Limit matches if specified
