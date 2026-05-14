@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>足球彩票分析工具</title>
+<style>
+:root {
+  --blue: #366092;
+  --yellow: #FFF2CC;
+  --gray: #E7E6E6;
+  --border: #d0d0d0;
+  --text: #333;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f6f8; color: var(--text); min-height: 100vh; }
+.header { background: var(--blue); color: #fff; padding: 18px 28px; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header .subtitle { font-size: 13px; opacity: .85; }
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+/* Control panel */
+.panel { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.panel-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.panel-row + .panel-row { margin-top: 12px; }
+.panel label { font-size: 13px; color: #666; margin-right: 4px; }
+.panel input[type="text"], .panel input[type="number"] { padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 13px; width: 180px; }
+.panel input[type="checkbox"] { margin-right: 4px; }
+.btn { padding: 8px 20px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; font-weight: 500; transition: opacity .15s; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-primary { background: var(--blue); color: #fff; }
+.btn-success { background: #27ae60; color: #fff; }
+.btn-primary:hover:not(:disabled), .btn-success:hover:not(:disabled) { opacity: .88; }
+
+/* Progress */
+.progress-wrap { margin-top: 12px; }
+.progress-bar { height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--blue); border-radius: 4px; transition: width .3s ease; width: 0; }
+.progress-text { font-size: 12px; color: #888; margin-top: 4px; display: flex; justify-content: space-between; }
+
+/* Table */
+.table-wrap { background: #fff; border-radius: 8px; overflow: auto; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 16px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 900px; }
+thead th { background: var(--blue); color: #fff; padding: 10px 6px; text-align: center; font-weight: 500; position: sticky; top: 0; z-index: 1; }
+tbody td { padding: 8px 6px; text-align: center; border-bottom: 1px solid var(--border); }
+tbody tr:nth-child(even) { background: #fafafa; }
+tbody tr:hover { background: var(--yellow); }
+.match-id { font-weight: 600; color: var(--blue); }
+.rank { color: #999; font-size: 11px; }
+.empty-state { padding: 48px 20px; text-align: center; color: #aaa; }
+.empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+
+/* Log */
+.log-wrap { background: #1e1e1e; color: #d4d4d4; border-radius: 8px; padding: 14px 18px; font-family: "SF Mono", "Menlo", monospace; font-size: 12px; max-height: 200px; overflow-y: auto; margin-bottom: 16px; display: none; }
+.log-wrap.visible { display: block; }
+.log-line { padding: 2px 0; }
+.log-line::before { content: "▸ "; color: var(--blue); }
+
+/* Download */
+.download-section { text-align: center; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+
+/* Toast */
+.toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; color: #fff; font-size: 14px; z-index: 999; animation: fadeIn .3s; }
+.toast.error { background: #e74c3c; }
+.toast.info { background: var(--blue); }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+.checkbox-label { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; cursor: pointer; user-select: none; }
+
+/* Browser install banner */
+.install-banner { background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.install-banner .msg { font-size: 14px; color: #856404; }
+.install-banner .msg strong { color: #d39e00; }
+.btn-warning { background: #f0ad4e; color: #fff; }
+.btn-warning:hover:not(:disabled) { opacity: .88; }
+.install-progress { font-size: 12px; color: #856404; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>足球彩票分析工具</h1>
+    <div class="subtitle">数据来源: live.500.com · 浏览器自动化抓取</div>
+  </div>
+  <span style="font-size:13px;opacity:.7" id="clock"></span>
+</div>
+
+<div class="container">
+
+  <!-- Browser install banner (hidden by default) -->
+  <div class="install-banner" id="install-banner" style="display:none">
+    <div>
+      <div class="msg" id="install-msg"><strong>未检测到 Chromium 浏览器</strong> — 爬虫需要它来抓取数据</div>
+      <div class="install-progress" id="install-progress" style="display:none"></div>
+    </div>
+    <button class="btn btn-warning" id="btn-install" onclick="installBrowser()">安装 Chromium</button>
+  </div>
+
+  <!-- Controls -->
+  <div class="panel">
+    <div class="panel-row">
+      <label>URL</label>
+      <input type="text" id="url-input" value="https://live.500.com/" placeholder="https://live.500.com/">
+      <label>最多场次</label>
+      <input type="number" id="max-matches" value="" placeholder="全部" min="1" style="width:80px">
+      <button class="btn btn-primary" id="btn-scrape" onclick="startScrape()">获取比赛数据</button>
+      <span style="font-size:13px;color:#888" id="status-text">就绪</span>
+    </div>
+    <div class="panel-row">
+      <label class="checkbox-label"><input type="checkbox" id="opt-headless" checked> 无头模式</label>
+      <label class="checkbox-label"><input type="checkbox" id="opt-asian"> 亚洲盘口 + 百家欧赔凯利</label>
+    </div>
+    <div class="progress-wrap">
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-text"><span id="progress-stage">—</span><span id="progress-pct">0%</span></div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="log-wrap" id="log-wrap"></div>
+
+  <!-- Match table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>场次</th><th>联赛</th><th>轮次</th><th>时间</th><th>状态</th>
+          <th>主队</th><th>让球</th><th>客队</th>
+          <th>胜负</th><th>让球奖金</th><th>平均欧赔</th>
+          <th>威廉</th><th>澳彩</th><th>365</th><th>皇者</th>
+        </tr>
+      </thead>
+      <tbody id="match-tbody">
+        <tr><td colspan="15" class="empty-state"><div class="icon">⚽</div>点击「获取比赛数据」开始抓取</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Download -->
+  <div class="download-section">
+    <span style="margin-right:12px;color:#888;font-size:14px" id="download-label">生成 Excel 模板后即可下载</span>
+    <button class="btn btn-success" id="btn-download" disabled onclick="downloadExcel()">下载 Excel 模板</button>
+  </div>
+
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+
+let pollingTimer = null;
+let installPollingTimer = null;
+let logLines = [];
+let browserInstalled = true;
+
+async function checkBrowserStatus() {
+  try {
+    const resp = await fetch('/api/browser-status');
+    const data = await resp.json();
+    browserInstalled = data.installed;
+    if (!browserInstalled) {
+      $('#install-banner').style.display = 'flex';
+      $('#btn-scrape').disabled = true;
+      $('#btn-scrape').title = '请先安装 Chromium 浏览器';
+      if (data.install_state && data.install_state.installing) {
+        $('#btn-install').disabled = true;
+        $('#install-msg').innerHTML = '<strong>正在安装 Chromium...</strong>';
+        $('#install-progress').style.display = 'block';
+        $('#install-progress').textContent = data.install_state.message;
+        startInstallPolling();
+      }
+    } else {
+      $('#install-banner').style.display = 'none';
+      $('#btn-scrape').disabled = false;
+      $('#btn-scrape').title = '';
+    }
+  } catch (e) { /* ignore */ }
+}
+
+async function installBrowser() {
+  $('#btn-install').disabled = true;
+  $('#install-msg').innerHTML = '<strong>正在安装 Chromium...</strong>';
+  $('#install-progress').style.display = 'block';
+  $('#install-progress').textContent = '正在启动安装...';
+  try {
+    await fetch('/api/install-browser', { method: 'POST' });
+    startInstallPolling();
+  } catch (e) {
+    toast('安装请求失败: ' + e.message, 'error');
+    $('#btn-install').disabled = false;
+  }
+}
+
+function startInstallPolling() {
+  if (installPollingTimer) clearInterval(installPollingTimer);
+  installPollingTimer = setInterval(pollInstallStatus, 1500);
+}
+
+async function pollInstallStatus() {
+  try {
+    const resp = await fetch('/api/browser-status');
+    const data = await resp.json();
+    if (data.install_state && data.install_state.installing) {
+      $('#install-progress').textContent = data.install_state.message;
+    } else if (data.install_state && data.install_state.done) {
+      clearInterval(installPollingTimer);
+      installPollingTimer = null;
+      if (data.installed) {
+        $('#install-banner').style.display = 'none';
+        $('#btn-scrape').disabled = false;
+        toast('Chromium 安装完成！', 'info');
+      } else {
+        $('#btn-install').disabled = false;
+        const err = data.install_state.error || '安装失败';
+        $('#install-msg').innerHTML = '<strong>安装失败</strong> — ' + escHtml(err);
+        $('#install-progress').style.display = 'none';
+        toast('安装失败: ' + err, 'error');
+      }
+    }
+  } catch (e) { /* ignore */ }
+}
+
+function toast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (type || 'info');
+  el.textContent = msg;
+  $('#toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function updateClock() {
+  const now = new Date();
+  $('#clock').textContent = now.toLocaleString('zh-CN', {hour12: false});
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+checkBrowserStatus();
+
+async function startScrape() {
+  if ($('#btn-scrape').disabled) return;
+
+  const body = {
+    url: $('#url-input').value.trim() || 'https://live.500.com/',
+    headless: $('#opt-headless').checked,
+    max_matches: $('#max-matches').value ? parseInt($('#max-matches').value) : null,
+    asian_handicap: $('#opt-asian').checked,
+  };
+
+  $('#btn-scrape').disabled = true;
+  $('#btn-download').disabled = true;
+  $('#download-label').textContent = '生成 Excel 模板后即可下载';
+  $('#progress-fill').style.width = '0%';
+  $('#progress-stage').textContent = '正在启动...';
+  $('#progress-pct').textContent = '0%';
+  $('#status-text').textContent = '启动中...';
+  $('#match-tbody').innerHTML = '<tr><td colspan="15" class="empty-state">⏳ 正在抓取数据...</td></tr>';
+  $('#log-wrap').classList.add('visible');
+  $('#log-wrap').innerHTML = '';
+  logLines = [];
+
+  try {
+    const resp = await fetch('/api/scrape', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (resp.status === 409) {
+      toast('已有正在进行的任务', 'error');
+      $('#btn-scrape').disabled = false;
+      $('#status-text').textContent = '就绪';
+      return;
+    }
+    if (!resp.ok) throw new Error('启动失败');
+    startPolling();
+  } catch (e) {
+    toast('请求失败: ' + e.message, 'error');
+    $('#btn-scrape').disabled = false;
+    $('#status-text').textContent = '请求失败';
+  }
+}
+
+function startPolling() {
+  if (pollingTimer) clearInterval(pollingTimer);
+  pollingTimer = setInterval(pollStatus, 800);
+}
+
+async function pollStatus() {
+  try {
+    const resp = await fetch('/api/status');
+    const s = await resp.json();
+
+    $('#progress-fill').style.width = s.progress + '%';
+    $('#progress-stage').textContent = s.message;
+    $('#progress-pct').textContent = s.progress + '%';
+    $('#status-text').textContent = s.message;
+
+    // Update log
+    fetch('/api/log').then(r => r.json()).then(data => {
+      if (data.log && data.log.length > logLines.length) {
+        logLines = data.log;
+        $('#log-wrap').innerHTML = data.log.map(l => '<div class="log-line">' + escHtml(l) + '</div>').join('');
+        $('#log-wrap').scrollTop = $('#log-wrap').scrollHeight;
+      }
+    }).catch(() => {});
+
+    // Done or error
+    if (s.stage === 'done') {
+      clearInterval(pollingTimer);
+      pollingTimer = null;
+      $('#btn-scrape').disabled = false;
+      $('#btn-download').disabled = false;
+      $('#download-label').textContent = '共 ' + s.match_count + ' 场比赛 —';
+      renderTable(s.matches || []);
+    } else if (s.stage === 'error') {
+      clearInterval(pollingTimer);
+      pollingTimer = null;
+      $('#btn-scrape').disabled = false;
+      $('#status-text').textContent = '错误';
+      toast('抓取失败，请查看日志', 'error');
+      $('#match-tbody').innerHTML = '<tr><td colspan="15" class="empty-state">❌ 抓取失败 — 请查看下方日志了解详情</td></tr>';
+    }
+  } catch (e) {
+    // polling will retry
+  }
+}
+
+function renderTable(matches) {
+  if (!matches.length) {
+    $('#match-tbody').innerHTML = '<tr><td colspan="15" class="empty-state">未获取到比赛数据</td></tr>';
+    return;
+  }
+  $('#match-tbody').innerHTML = matches.map(m => {
+    const hr = m.home_rank ? '<span class="rank">[' + m.home_rank + ']</span>' : '';
+    const ar = m.away_rank ? '<span class="rank">[' + m.away_rank + ']</span>' : '';
+    return '<tr>' +
+      '<td class="match-id">' + escHtml(m.match_id) + '</td>' +
+      '<td>' + escHtml(m.league) + '</td>' +
+      '<td>' + escHtml(m.round) + '</td>' +
+      '<td>' + escHtml(m.match_time) + '</td>' +
+      '<td>' + escHtml(m.status) + '</td>' +
+      '<td>' + hr + escHtml(m.home_team) + '</td>' +
+      '<td>' + escHtml(m.handicap) + '</td>' +
+      '<td>' + escHtml(m.away_team) + ar + '</td>' +
+      '<td>' + escHtml(m.win_odds) + '</td>' +
+      '<td>' + escHtml(m.let_odds) + '</td>' +
+      '<td>' + escHtml(m.avg_euro) + '</td>' +
+      '<td>' + escHtml(m.william_odds) + '</td>' +
+      '<td>' + escHtml(m.aust_odds) + '</td>' +
+      '<td>' + escHtml(m.bet365_odds) + '</td>' +
+      '<td>' + escHtml(m.royal_odds) + '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+function downloadExcel() {
+  window.open('/api/download', '_blank');
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

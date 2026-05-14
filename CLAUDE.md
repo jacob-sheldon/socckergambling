@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Python CLI tool that generates comprehensive Excel templates for soccer betting analysis with real match data scraped from 500.com. The project uses a flat-layout structure with top-level modules.
+This is a Python web application that generates comprehensive Excel templates for soccer betting analysis with real match data scraped from 500.com. The project uses a flat-layout structure with top-level modules.
 
 **Package Manager:** `uv` (fast Python package manager)
 
 **Python Version:** 3.12+
 
-**Main Dependencies:** `openpyxl` for Excel file generation, `playwright` for browser automation
+**Main Dependencies:** `flask` for web server, `openpyxl` for Excel generation, `playwright` for browser automation
 
 ## Commands
 
@@ -25,24 +25,24 @@ uv run playwright install chromium
 
 ### Running the Tool
 ```bash
-# Generate template using browser automation (Playwright)
+# Web app (primary interface) - starts server + opens browser
+uv run launcher
+
+# Or web server only
+uv run web-app --port 5100
+
+# CLI mode (generates Excel directly, no browser UI)
 uv run generate-browser-template
-
-# Browser automation with options
 uv run generate-browser-template -o custom_output.xlsx --max-matches 5
-uv run generate-browser-template --no-headless  # Run with visible browser for debugging
-uv run generate-browser-template --enhanced-odds  # Fetch detailed odds data
-
-# The tool fetches live match data from live.500.com and displays it in terminal:
-# - 场次 (Match ID): 周一001, 周二002, etc.
-# - 赛事 (League): 德甲, 意甲, 非洲杯, etc.
-# - 轮次 (Round): 第17轮, 半决赛, etc.
-# - 比赛时间 (Match Time): 01-15 01:30
-# - 状态 (Status): 未, 进行中, 完场
-# - 主队/客队 (Home/Away Team) with rankings: [04]那不勒斯
-# - 让球 (Handicap): 半球, 球半, 受半球, etc.
-# - 赔率数据 (Odds): 胜负奖金, 让球奖金, 平均欧赔, 威廉, 澳彩, 365, 皇者
+uv run generate-browser-template --no-headless  # Visible browser for debugging
+uv run generate-browser-template --asian-handicap  # Fetch Asian handicap + Euro Kelly data
 ```
+
+### Double-click Launch (no terminal needed)
+- **macOS:** Double-click `启动足球分析工具.command`
+- **Windows:** Double-click `启动足球分析工具.bat`
+
+Both scripts start the Flask web server and open the default browser to `http://127.0.0.1:5100`.
 
 ### Custom Claude Code Commands
 
@@ -65,17 +65,6 @@ uv run generate-browser-template --enhanced-odds  # Fetch detailed odds data
   - `Fix: Handle missing odds data gracefully`
   - `Refactor: Improve error handling in browser automation`
 
-### Building Executable
-
-```bash
-# Install PyInstaller (first time only)
-uv sync --dev
-
-# Build executable directly
-uv run pyinstaller --onefile --name "足球彩票分析工具" --console browser_bet_scraper.py
-# Output: dist/足球彩票分析工具 (or 足球彩票分析工具.exe on Windows)
-```
-
 ### After Adding New Modules
 When adding new `.py` files as CLI modules, update `pyproject.toml`:
 1. Add the module to `[tool.setuptools].py-modules` list
@@ -95,6 +84,26 @@ py-modules = ["new_module", "browser_bet_scraper"]
 ## Architecture
 
 ### Module Structure
+
+#### `web_app.py` - Flask Web Application
+
+**Purpose:** Web-based UI for the soccer betting analysis tool. Replaces the old PyQt6 GUI.
+
+**API Endpoints:**
+- `GET /` - Serves the web UI (index.html)
+- `POST /api/scrape` - Starts a scraping job in a background thread
+- `GET /api/status` - Returns current scraping progress state
+- `GET /api/log` - Returns log lines from the current/last scrape
+- `GET /api/download` - Downloads the generated Excel file
+
+**Key Design:**
+- Async Playwright scraping runs in a background thread via `asyncio.run()`
+- Global `_scrape_state` dict tracks progress (single-user local app, no locking needed)
+- Frontend polls `/api/status` every 800ms during scraping
+
+#### `launcher.py` - Cross-Platform Launcher
+
+**Purpose:** Starts the Flask server as a subprocess and opens the default browser.
 
 #### `browser_bet_scraper.py` - Browser Automation Template Generator (Playwright)
 

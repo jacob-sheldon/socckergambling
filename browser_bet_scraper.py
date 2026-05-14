@@ -541,12 +541,16 @@ async def fetch_matches_with_browser(
         return fallback_data
 
 
+_WEEKDAY_CN = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+
 def _generate_fallback_matches(count: int = 15) -> List[MatchData]:
     """Generate fallback match data when browser scraping fails."""
+    today_weekday = _WEEKDAY_CN[datetime.now().weekday()]
     matches = []
     for i in range(1, count + 1):
         match = MatchData(
-            match_id=f"周一{i:03d}",
+            match_id=f"{today_weekday}{i:03d}",
             league=f"竞彩联赛",
             round=f"第{i}轮",
             match_time=f"01-{i+5:02d} 14:00",
@@ -1288,15 +1292,7 @@ def generate_browser_template(
         print("未找到比赛数据，生成空模板...")
         matches = _generate_fallback_matches(5)
     else:
-        # Filter for the most recent day (based on the first match's weekday prefix)
-        first_match_id = matches[0].match_id
-        # Extract "周X" (first 2 chars)
-        if len(first_match_id) >= 2 and first_match_id.startswith("周"):
-            current_weekday = first_match_id[:2]
-            original_count = len(matches)
-            matches = [m for m in matches if m.match_id.startswith(current_weekday)]
-            filtered_count = len(matches)
-            print(f"筛选最近一天比赛 ({current_weekday}): 从 {original_count} 场保留至 {filtered_count} 场")
+        print(f"保留全部 {len(matches)} 场比赛数据")
 
     # Limit matches if specified
     if max_matches is not None:
