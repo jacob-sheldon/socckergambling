@@ -1186,7 +1186,7 @@ def style_header_rows(ws):
     ws.row_dimensions[2].height = 20
 
 
-def add_match_data(ws, start_row: int, match: MatchData) -> int:
+def add_match_data(ws, start_row: int, match: MatchData, time_points: list = None) -> int:
     """
     Add comprehensive match data to the worksheet.
 
@@ -1194,28 +1194,37 @@ def add_match_data(ws, start_row: int, match: MatchData) -> int:
         ws: Worksheet object
         start_row: Starting row number
         match: MatchData object with comprehensive information
+        time_points: Optional list of dicts (max 9), one per time point,
+                     each with keys matching MatchData variable fields.
+                     If None/empty, uses match data for the first time point.
 
     Returns:
         Number of rows added
     """
+    if time_points is None:
+        time_points = []
+
     current_row = start_row
 
-    # Match ID row
+    # Match ID row — use first time point for asian handicap if available
+    first_tp = time_points[0] if time_points else {}
+
     ws.cell(row=current_row, column=1, value=match.match_id)
     ws.cell(row=current_row, column=2, value=match.handicap)
 
-    # Add Asian handicap data if available (replaces the odds data)
-    if match.asian_handicap:
-        ws.cell(row=current_row, column=2, value=match.asian_handicap)  # 盘
-    if match.home_water:
-        ws.cell(row=current_row, column=3, value=match.home_water)  # 水1
-    if match.away_water:
-        ws.cell(row=current_row, column=4, value=match.away_water)  # 水2
+    ah = first_tp.get('asian_handicap', '') or match.asian_handicap
+    hw = first_tp.get('home_water', '') or match.home_water
+    aw = first_tp.get('away_water', '') or match.away_water
 
-    # Add odds data if available (only if Asian handicap data is not present)
-    if not match.asian_handicap and match.win_odds:
+    if ah:
+        ws.cell(row=current_row, column=2, value=ah)
+    if hw:
+        ws.cell(row=current_row, column=3, value=hw)
+    if aw:
+        ws.cell(row=current_row, column=4, value=aw)
+    if not ah and match.win_odds:
         ws.cell(row=current_row, column=3, value=match.win_odds)
-    if not match.asian_handicap and match.let_odds:
+    if not ah and match.let_odds:
         ws.cell(row=current_row, column=4, value=match.let_odds)
 
     # Style match ID row
@@ -1231,11 +1240,55 @@ def add_match_data(ws, start_row: int, match: MatchData) -> int:
     # Add time point rows
     for idx, time_label in enumerate(TIME_LABELS):
         ws.cell(row=current_row, column=1, value=time_label)
-        if idx == 0:
+
+        tp = time_points[idx] if idx < len(time_points) else {}
+        if tp:
+            if tp.get('euro_kelly_win'):
+                ws.cell(row=current_row, column=3, value=tp['euro_kelly_win'])
+            elif tp.get('win_odds'):
+                ws.cell(row=current_row, column=3, value=tp['win_odds'])
+            if tp.get('euro_kelly_lose'):
+                ws.cell(row=current_row, column=4, value=tp['euro_kelly_lose'])
+            elif tp.get('let_odds'):
+                ws.cell(row=current_row, column=4, value=tp['let_odds'])
+            if tp.get('avg_euro'):
+                ws.cell(row=current_row, column=11, value=tp['avg_euro'])
+            if tp.get('william_odds'):
+                ws.cell(row=current_row, column=12, value=tp['william_odds'])
+            if tp.get('aust_odds'):
+                ws.cell(row=current_row, column=13, value=tp['aust_odds'])
+            if tp.get('bet365_odds'):
+                ws.cell(row=current_row, column=14, value=tp['bet365_odds'])
+            if tp.get('royal_odds'):
+                ws.cell(row=current_row, column=15, value=tp['royal_odds'])
+            if tp.get('euro_kelly_win_2'):
+                ws.cell(row=current_row, column=6, value=tp['euro_kelly_win_2'])
+            if tp.get('euro_kelly_lose_2'):
+                ws.cell(row=current_row, column=7, value=tp['euro_kelly_lose_2'])
+            if tp.get('euro_kelly_draw'):
+                ws.cell(row=current_row, column=9, value=tp['euro_kelly_draw'])
+            if tp.get('euro_kelly_draw_2'):
+                ws.cell(row=current_row, column=10, value=tp['euro_kelly_draw_2'])
+        elif idx == 0 and not time_points:
+            # Backward-compat: use match data for first time point
             if match.euro_kelly_win:
                 ws.cell(row=current_row, column=3, value=match.euro_kelly_win)
+            elif match.win_odds:
+                ws.cell(row=current_row, column=3, value=match.win_odds)
             if match.euro_kelly_lose:
                 ws.cell(row=current_row, column=4, value=match.euro_kelly_lose)
+            elif match.let_odds:
+                ws.cell(row=current_row, column=4, value=match.let_odds)
+            if match.avg_euro:
+                ws.cell(row=current_row, column=11, value=match.avg_euro)
+            if match.william_odds:
+                ws.cell(row=current_row, column=12, value=match.william_odds)
+            if match.aust_odds:
+                ws.cell(row=current_row, column=13, value=match.aust_odds)
+            if match.bet365_odds:
+                ws.cell(row=current_row, column=14, value=match.bet365_odds)
+            if match.royal_odds:
+                ws.cell(row=current_row, column=15, value=match.royal_odds)
             if match.euro_kelly_win_2:
                 ws.cell(row=current_row, column=6, value=match.euro_kelly_win_2)
             if match.euro_kelly_lose_2:
@@ -1347,6 +1400,7 @@ def generate_browser_template(
         info_sheet.cell(row=row_idx, column=2, value=value)
 
     # Save workbook
+    Path(filename).parent.mkdir(parents=True, exist_ok=True)
     wb.save(filename)
 
     print("=" * 80)
@@ -1358,6 +1412,128 @@ def generate_browser_template(
     print("=" * 80)
 
 
+def generate_accumulated_excel(
+    filename: str,
+    sessions: list,
+    base_url: str = BASE_URL
+):
+    """
+    Generate an Excel template from accumulated scrape sessions.
+
+    Each session corresponds to one time point (session 0 → 初盘3点, etc.),
+    up to a maximum of 9 sessions.
+
+    Args:
+        filename: Output Excel filename
+        sessions: List of {time: str, matches: list}, one per scrape
+        base_url: Data source URL for metadata sheet
+    """
+    sessions = sessions[:9]  # Max 9 time points
+
+    # Build a map: match_id → {static info, time_points list}
+    match_map: dict = {}
+
+    for session in sessions:
+        for m in session.get('matches', []):
+            mid = m.get('match_id', '')
+            if not mid:
+                continue
+            if mid not in match_map:
+                match_map[mid] = {
+                    'static': m,
+                    'time_points': [],
+                }
+            tp_data = {
+                'asian_handicap': m.get('asian_handicap', ''),
+                'home_water': m.get('home_water', ''),
+                'away_water': m.get('away_water', ''),
+                'win_odds': m.get('win_odds', ''),
+                'let_odds': m.get('let_odds', ''),
+                'avg_euro': m.get('avg_euro', ''),
+                'william_odds': m.get('william_odds', ''),
+                'aust_odds': m.get('aust_odds', ''),
+                'bet365_odds': m.get('bet365_odds', ''),
+                'royal_odds': m.get('royal_odds', ''),
+                'euro_kelly_win': m.get('euro_kelly_win', ''),
+                'euro_kelly_draw': m.get('euro_kelly_draw', ''),
+                'euro_kelly_lose': m.get('euro_kelly_lose', ''),
+                'euro_kelly_win_2': m.get('euro_kelly_win_2', ''),
+                'euro_kelly_draw_2': m.get('euro_kelly_draw_2', ''),
+                'euro_kelly_lose_2': m.get('euro_kelly_lose_2', ''),
+            }
+            match_map[mid]['time_points'].append(tp_data)
+
+    # Pad time_points for matches that don't appear in earlier sessions
+    for mid, entry in match_map.items():
+        while len(entry['time_points']) < len(sessions):
+            entry['time_points'].insert(0, {})
+
+    # Create workbook
+    wb, ws = create_template_workbook()
+    set_column_widths(ws)
+    merge_header_cells(ws)
+    style_header_rows(ws)
+
+    row = 3
+    for mid, entry in match_map.items():
+        static = entry['static']
+        match = MatchData(
+            match_id=static.get('match_id', ''),
+            league=static.get('league', ''),
+            round=static.get('round', ''),
+            match_time=static.get('match_time', ''),
+            status=static.get('status', ''),
+            home_team=static.get('home_team', ''),
+            home_rank=static.get('home_rank', ''),
+            handicap=static.get('handicap', ''),
+            away_team=static.get('away_team', ''),
+            away_rank=static.get('away_rank', ''),
+            halftime_score=static.get('halftime_score', ''),
+            win_odds=static.get('win_odds', ''),
+            let_odds=static.get('let_odds', ''),
+            avg_euro=static.get('avg_euro', ''),
+            william_odds=static.get('william_odds', ''),
+            aust_odds=static.get('aust_odds', ''),
+            bet365_odds=static.get('bet365_odds', ''),
+            royal_odds=static.get('royal_odds', ''),
+            asian_handicap=static.get('asian_handicap', ''),
+            home_water=static.get('home_water', ''),
+            away_water=static.get('away_water', ''),
+            analysis_url=static.get('analysis_url', ''),
+            euro_odds_url=static.get('euro_odds_url', ''),
+            euro_kelly_win=static.get('euro_kelly_win', ''),
+            euro_kelly_draw=static.get('euro_kelly_draw', ''),
+            euro_kelly_lose=static.get('euro_kelly_lose', ''),
+            euro_kelly_win_2=static.get('euro_kelly_win_2', ''),
+            euro_kelly_draw_2=static.get('euro_kelly_draw_2', ''),
+            euro_kelly_lose_2=static.get('euro_kelly_lose_2', ''),
+        )
+        row += add_match_data(ws, row, match, time_points=entry['time_points'])
+
+    ws.freeze_panes = 'A3'
+
+    # Add metadata sheet
+    info_sheet = wb.create_sheet("数据来源信息")
+    info_sheet.column_dimensions['A'].width = 20
+    info_sheet.column_dimensions['B'].width = 40
+
+    info_data = [
+        ["生成时间", datetime.now().strftime("%Y-%m-%d %H:%M:%S")],
+        ["数据来源", base_url],
+        ["抓取次数", len(sessions)],
+        ["比赛数量", len(match_map)],
+        ["抓取时间点", ", ".join(s.get('time', '') for s in sessions)],
+    ]
+
+    for row_idx, (label, value) in enumerate(info_data, start=1):
+        info_sheet.cell(row=row_idx, column=1, value=label)
+        info_sheet.cell(row=row_idx, column=2, value=value)
+
+    Path(filename).parent.mkdir(parents=True, exist_ok=True)
+    wb.save(filename)
+    print(f"✓ 累计 Excel '{filename}' 生成成功（{len(sessions)} 次抓取，{len(match_map)} 场比赛）")
+
+
 def main():
     """Entry point for the CLI command."""
     import argparse
@@ -1367,8 +1543,8 @@ def main():
     )
     parser.add_argument(
         "-o", "--output",
-        default="live_betting_template.xlsx",
-        help="输出 Excel 文件名 (默认: live_betting_template.xlsx)"
+        default="data/live_betting_template.xlsx",
+        help="输出 Excel 路径 (默认: data/live_betting_template.xlsx)"
     )
     parser.add_argument(
         "-u", "--url",

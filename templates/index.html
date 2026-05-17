@@ -30,7 +30,9 @@ body { font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif;
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn-primary { background: var(--blue); color: #fff; }
 .btn-success { background: #27ae60; color: #fff; }
-.btn-primary:hover:not(:disabled), .btn-success:hover:not(:disabled) { opacity: .88; }
+.btn-warning { background: #f0ad4e; color: #fff; }
+.btn-danger { background: #e74c3c; color: #fff; }
+.btn-primary:hover:not(:disabled), .btn-success:hover:not(:disabled), .btn-warning:hover:not(:disabled), .btn-danger:hover:not(:disabled) { opacity: .88; }
 
 /* Progress */
 .progress-wrap { margin-top: 12px; }
@@ -47,17 +49,23 @@ tbody tr:nth-child(even) { background: #fafafa; }
 tbody tr:hover { background: var(--yellow); }
 .match-id { font-weight: 600; color: var(--blue); }
 .rank { color: #999; font-size: 11px; }
+.batch-label { font-size: 11px; color: #666; white-space: nowrap; }
+.batch-unsaved { color: #e67e22; font-weight: 600; }
 .empty-state { padding: 48px 20px; text-align: center; color: #aaa; }
 .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+.session-sep { background: #f0f0f0 !important; }
+.session-sep td { padding: 4px 6px; font-size: 11px; color: #888; text-align: left; border-bottom: 2px solid var(--blue); }
+.btn-del { background: none; border: 1px solid #ccc; color: #999; border-radius: 3px; cursor: pointer; padding: 1px 6px; font-size: 12px; }
+.btn-del:hover { background: #e74c3c; color: #fff; border-color: #e74c3c; }
 
 /* Log */
 .log-wrap { background: #1e1e1e; color: #d4d4d4; border-radius: 8px; padding: 14px 18px; font-family: "SF Mono", "Menlo", monospace; font-size: 12px; max-height: 200px; overflow-y: auto; margin-bottom: 16px; display: none; }
 .log-wrap.visible { display: block; }
 .log-line { padding: 2px 0; }
-.log-line::before { content: "▸ "; color: var(--blue); }
+.log-line::before { content: "\25b8 "; color: var(--blue); }
 
 /* Download */
-.download-section { text-align: center; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.download-section { text-align: center; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
 
 /* Toast */
 .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; color: #fff; font-size: 14px; z-index: 999; animation: fadeIn .3s; }
@@ -71,8 +79,6 @@ tbody tr:hover { background: var(--yellow); }
 .install-banner { background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .install-banner .msg { font-size: 14px; color: #856404; }
 .install-banner .msg strong { color: #d39e00; }
-.btn-warning { background: #f0ad4e; color: #fff; }
-.btn-warning:hover:not(:disabled) { opacity: .88; }
 .install-progress { font-size: 12px; color: #856404; margin-top: 6px; }
 </style>
 </head>
@@ -105,11 +111,14 @@ tbody tr:hover { background: var(--yellow); }
       <label>最多场次</label>
       <input type="number" id="max-matches" value="" placeholder="全部" min="1" style="width:80px">
       <button class="btn btn-primary" id="btn-scrape" onclick="startScrape()">获取比赛数据</button>
+      <button class="btn btn-warning" id="btn-save" disabled onclick="saveSession()">保存到今日表格中</button>
       <span style="font-size:13px;color:#888" id="status-text">就绪</span>
+      <span style="font-size:13px;color:#366092;margin-left:8px" id="session-count"></span>
     </div>
     <div class="panel-row">
       <label class="checkbox-label"><input type="checkbox" id="opt-headless" checked> 无头模式</label>
       <label class="checkbox-label"><input type="checkbox" id="opt-asian"> 亚洲盘口 + 百家欧赔凯利</label>
+      <button class="btn btn-danger" id="btn-clear" style="display:none;margin-left:auto" onclick="clearSessions()">清空今日记录</button>
     </div>
     <div class="progress-wrap">
       <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
@@ -125,22 +134,23 @@ tbody tr:hover { background: var(--yellow); }
     <table>
       <thead>
         <tr>
-          <th>场次</th><th>联赛</th><th>轮次</th><th>时间</th><th>状态</th>
+          <th>批次</th><th>场次</th><th>联赛</th><th>轮次</th><th>时间</th><th>状态</th>
           <th>主队</th><th>让球</th><th>客队</th>
           <th>胜负</th><th>让球奖金</th><th>平均欧赔</th>
           <th>威廉</th><th>澳彩</th><th>365</th><th>皇者</th>
         </tr>
       </thead>
       <tbody id="match-tbody">
-        <tr><td colspan="15" class="empty-state"><div class="icon">⚽</div>点击「获取比赛数据」开始抓取</td></tr>
+        <tr><td colspan="16" class="empty-state"><div class="icon">⚽</div>点击「获取比赛数据」开始抓取</td></tr>
       </tbody>
     </table>
   </div>
 
   <!-- Download -->
   <div class="download-section">
-    <span style="margin-right:12px;color:#888;font-size:14px" id="download-label">生成 Excel 模板后即可下载</span>
-    <button class="btn btn-success" id="btn-download" disabled onclick="downloadExcel()">下载 Excel 模板</button>
+    <span style="margin-right:4px;color:#888;font-size:14px" id="download-label">生成 Excel 模板后即可下载</span>
+    <button class="btn btn-success" id="btn-download-current" disabled onclick="downloadCurrent()">下载本次Excel</button>
+    <button class="btn btn-success" id="btn-download-today" disabled onclick="downloadToday()">下载今日Excel</button>
   </div>
 
 </div>
@@ -155,6 +165,8 @@ let pollingTimer = null;
 let installPollingTimer = null;
 let logLines = [];
 let browserInstalled = true;
+let currentMatches = [];
+let savedSessions = [];
 
 async function checkBrowserStatus() {
   try {
@@ -238,7 +250,39 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
+refreshSessions();
 checkBrowserStatus();
+
+async function refreshSessions() {
+  try {
+    const resp = await fetch('/api/sessions');
+    const data = await resp.json();
+    savedSessions = data.sessions || [];
+    if (data.current_matches && data.current_matches.length > 0) {
+      currentMatches = data.current_matches;
+    }
+    updateSessionUI();
+    renderCompositeTable();
+  } catch (e) { /* ignore */ }
+}
+
+function updateSessionUI() {
+  const n = savedSessions.length;
+  if (n > 0) {
+    $('#session-count').textContent = '今日已保存 ' + n + ' 次';
+    $('#btn-download-today').disabled = false;
+    $('#btn-clear').style.display = '';
+  } else {
+    $('#session-count').textContent = '';
+    $('#btn-download-today').disabled = true;
+    $('#btn-clear').style.display = 'none';
+  }
+  if (currentMatches.length > 0) {
+    $('#btn-save').disabled = false;
+  } else {
+    $('#btn-save').disabled = true;
+  }
+}
 
 async function startScrape() {
   if ($('#btn-scrape').disabled) return;
@@ -251,13 +295,14 @@ async function startScrape() {
   };
 
   $('#btn-scrape').disabled = true;
-  $('#btn-download').disabled = true;
+  $('#btn-save').disabled = true;
+  $('#btn-download-current').disabled = true;
   $('#download-label').textContent = '生成 Excel 模板后即可下载';
   $('#progress-fill').style.width = '0%';
   $('#progress-stage').textContent = '正在启动...';
   $('#progress-pct').textContent = '0%';
   $('#status-text').textContent = '启动中...';
-  $('#match-tbody').innerHTML = '<tr><td colspan="15" class="empty-state">⏳ 正在抓取数据...</td></tr>';
+  $('#match-tbody').innerHTML = '<tr><td colspan="16" class="empty-state">⏳ 正在抓取数据...</td></tr>';
   $('#log-wrap').classList.add('visible');
   $('#log-wrap').innerHTML = '';
   logLines = [];
@@ -312,31 +357,58 @@ async function pollStatus() {
       clearInterval(pollingTimer);
       pollingTimer = null;
       $('#btn-scrape').disabled = false;
-      $('#btn-download').disabled = false;
+      $('#btn-download-current').disabled = false;
       $('#download-label').textContent = '共 ' + s.match_count + ' 场比赛 —';
-      renderTable(s.matches || []);
+      currentMatches = s.matches || [];
+      refreshSessions();
     } else if (s.stage === 'error') {
       clearInterval(pollingTimer);
       pollingTimer = null;
       $('#btn-scrape').disabled = false;
       $('#status-text').textContent = '错误';
       toast('抓取失败，请查看日志', 'error');
-      $('#match-tbody').innerHTML = '<tr><td colspan="15" class="empty-state">❌ 抓取失败 — 请查看下方日志了解详情</td></tr>';
+      $('#match-tbody').innerHTML = '<tr><td colspan="16" class="empty-state">❌ 抓取失败 — 请查看下方日志了解详情</td></tr>';
     }
   } catch (e) {
     // polling will retry
   }
 }
 
-function renderTable(matches) {
-  if (!matches.length) {
-    $('#match-tbody').innerHTML = '<tr><td colspan="15" class="empty-state">未获取到比赛数据</td></tr>';
+function renderCompositeTable() {
+  if (savedSessions.length === 0 && currentMatches.length === 0) {
+    $('#match-tbody').innerHTML = '<tr><td colspan="16" class="empty-state"><div class="icon">⚽</div>点击「获取比赛数据」开始抓取</td></tr>';
     return;
   }
-  $('#match-tbody').innerHTML = matches.map(m => {
+
+  let html = '';
+
+  // Render saved sessions first
+  for (let si = 0; si < savedSessions.length; si++) {
+    const session = savedSessions[si];
+    const matches = session.matches || [];
+    html += '<tr class="session-sep"><td colspan="16">第' + (si + 1) + '次抓取 · ' + escHtml(session.time || '') + '（' + matches.length + '场）<button class="btn-del" onclick="deleteSession(' + si + ')" title="删除此条记录">✕</button></td></tr>';
+    if (matches.length === 0) {
+      html += '<tr><td colspan="16" class="empty-state">无数据</td></tr>';
+    } else {
+      html += renderMatchRows(matches, '第' + (si + 1) + '次 ' + session.time);
+    }
+  }
+
+  // Render current unsaved matches
+  if (currentMatches.length > 0) {
+    html += '<tr class="session-sep"><td colspan="16">本次抓取（未保存）— ' + currentMatches.length + '场</td></tr>';
+    html += renderMatchRows(currentMatches, '<span class="batch-unsaved">本次（未保存）</span>');
+  }
+
+  $('#match-tbody').innerHTML = html;
+}
+
+function renderMatchRows(matches, batchLabel) {
+  return matches.map(m => {
     const hr = m.home_rank ? '<span class="rank">[' + m.home_rank + ']</span>' : '';
     const ar = m.away_rank ? '<span class="rank">[' + m.away_rank + ']</span>' : '';
     return '<tr>' +
+      '<td class="batch-label">' + batchLabel + '</td>' +
       '<td class="match-id">' + escHtml(m.match_id) + '</td>' +
       '<td>' + escHtml(m.league) + '</td>' +
       '<td>' + escHtml(m.round) + '</td>' +
@@ -356,8 +428,62 @@ function renderTable(matches) {
   }).join('');
 }
 
-function downloadExcel() {
+async function saveSession() {
+  if (!currentMatches.length) return;
+  try {
+    const resp = await fetch('/api/save-session', { method: 'POST' });
+    const data = await resp.json();
+    if (resp.ok) {
+      toast('已保存！（今日共 ' + data.session_count + ' 次）', 'info');
+      currentMatches = [];
+      refreshSessions();
+    } else {
+      toast(data.error || '保存失败', 'error');
+    }
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'error');
+  }
+}
+
+async function clearSessions() {
+  if (!confirm('确定清空今日所有已保存的记录？')) return;
+  try {
+    await fetch('/api/clear-sessions', { method: 'POST' });
+    savedSessions = [];
+    updateSessionUI();
+    renderCompositeTable();
+    toast('今日记录已清空', 'info');
+  } catch (e) {
+    toast('清空失败: ' + e.message, 'error');
+  }
+}
+
+async function deleteSession(idx) {
+  if (!confirm('确定删除第' + (idx + 1) + '次抓取记录？')) return;
+  try {
+    const resp = await fetch('/api/delete-session', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({index: idx}),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      toast('已删除（剩余 ' + data.session_count + ' 次）', 'info');
+      refreshSessions();
+    } else {
+      toast(data.error || '删除失败', 'error');
+    }
+  } catch (e) {
+    toast('删除失败: ' + e.message, 'error');
+  }
+}
+
+function downloadCurrent() {
   window.open('/api/download', '_blank');
+}
+
+function downloadToday() {
+  window.open('/api/download-today', '_blank');
 }
 
 function escHtml(s) {

@@ -9,8 +9,15 @@ wheels/
 # Virtual environments
 .venv
 
-# Excel output files
+# OS
+.DS_Store
+
+# Excel output directory
+data/
 *.xlsx
+
+# Runtime data
+.scrape_sessions.json
 
 # Word temporary files
 *.doc

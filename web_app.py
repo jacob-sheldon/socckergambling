@@ -43,12 +43,41 @@ _scrape_state: dict = {
     'stage': 'idle',
     'progress': 0,
     'message': '',
-    'matches': [],
-    'match_count': 0,
+    'matches': [],        # latest scrape result (not yet saved)
+    'match_count': 0,      # match count from latest scrape
+    'sessions': [],        # [{time: str, matches: list}, ...] accumulated across today
     'result_file': None,
     'error': None,
     'log': [],
 }
+
+_SESSIONS_FILE = _here / '.scrape_sessions.json'
+
+
+def _load_sessions():
+    """Load saved sessions from JSON. Returns empty list if file missing or date changed."""
+    if not _SESSIONS_FILE.exists():
+        return []
+    try:
+        data = json.loads(_SESSIONS_FILE.read_text(encoding='utf-8'))
+        if data.get('date') == datetime.now().strftime('%Y-%m-%d'):
+            return data.get('sessions', [])
+    except (json.JSONDecodeError, KeyError, ValueError):
+        pass
+    return []
+
+
+def _save_sessions(sessions: list):
+    """Save sessions to JSON file."""
+    data = {
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'sessions': sessions,
+    }
+    _SESSIONS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+# Load sessions on startup
+_scrape_state['sessions'] = _load_sessions()
 
 
 def _reset_state():
@@ -155,7 +184,7 @@ def _run_scrape(url: str, headless: bool, max_matches, fetch_asian: bool):
         _update('generating', 85, '正在生成 Excel 模板...')
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"live_betting_template_{ts}.xlsx"
-        filepath = str(_here / filename)
+        filepath = str(_here / 'data' / filename)
 
         wb, ws = create_template_workbook()
         set_column_widths(ws)
@@ -188,7 +217,7 @@ def index():
 
 @app.route('/api/status')
 def api_status():
-    return jsonify({k: v for k, v in _scrape_state.items() if k != 'log'})
+    return jsonify({k: v for k, v in _scrape_state.items() if k not in ('log', 'sessions')})
 
 
 @app.route('/api/log')
@@ -222,6 +251,60 @@ def api_download():
         return jsonify({'error': '文件不存在或尚未生成'}), 404
     name = os.path.basename(path)
     return send_file(path, as_attachment=True, download_name=name)
+
+
+@app.route('/api/sessions')
+def api_sessions():
+    return jsonify({
+        'sessions': _scrape_state.get('sessions', []),
+        'current_matches': _scrape_state.get('matches', []),
+    })
+
+
+@app.route('/api/save-session', methods=['POST'])
+def api_save_session():
+    if not _scrape_state['matches']:
+        return jsonify({'error': '没有可保存的数据'}), 400
+    session = {
+        'time': datetime.now().strftime('%H:%M:%S'),
+        'matches': _scrape_state['matches'],
+    }
+    _scrape_state['sessions'].append(session)
+    _save_sessions(_scrape_state['sessions'])
+    return jsonify({'status': 'saved', 'session_count': len(_scrape_state['sessions'])})
+
+
+@app.route('/api/clear-sessions', methods=['POST'])
+def api_clear_sessions():
+    _scrape_state['sessions'] = []
+    if _SESSIONS_FILE.exists():
+        _SESSIONS_FILE.unlink()
+    return jsonify({'status': 'cleared'})
+
+
+@app.route('/api/delete-session', methods=['POST'])
+def api_delete_session():
+    data = request.get_json(silent=True) or {}
+    idx = data.get('index')
+    sessions = _scrape_state['sessions']
+    if idx is None or idx < 0 or idx >= len(sessions):
+        return jsonify({'error': '无效的 session 索引'}), 400
+    sessions.pop(idx)
+    _save_sessions(sessions)
+    return jsonify({'status': 'deleted', 'session_count': len(sessions)})
+
+
+@app.route('/api/download-today')
+def api_download_today():
+    sessions = _scrape_state.get('sessions', [])
+    if not sessions:
+        return jsonify({'error': '今日没有已保存的数据'}), 404
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"today_accumulated_{ts}.xlsx"
+    filepath = str(_here / 'data' / filename)
+    bbs.generate_accumulated_excel(filepath, sessions)
+    name = os.path.basename(filepath)
+    return send_file(filepath, as_attachment=True, download_name=name)
 
 
 @app.route('/api/browser-status')
