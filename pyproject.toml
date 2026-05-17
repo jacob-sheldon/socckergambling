@@ -9,6 +9,9 @@ dependencies = [
     "flask>=3.0.0",
 ]
 
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0.0"]
+
 [project.scripts]
 generate-browser-template = "browser_bet_scraper:main"
 web-app = "web_app:main"
