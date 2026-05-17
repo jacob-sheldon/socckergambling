@@ -14,7 +14,7 @@ from pathlib import Path
 
 from flask import Flask, request, jsonify, send_file
 
-_here = Path(__file__).resolve().parent
+_here = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
 sys.path.insert(0, str(_here))
 
 import browser_bet_scraper as bbs
@@ -196,6 +196,7 @@ def _run_scrape(url: str, headless: bool, max_matches, fetch_asian: bool):
             row += add_match_data(ws, row, match)
 
         ws.freeze_panes = 'A3'
+        Path(filepath).parent.mkdir(parents=True, exist_ok=True)
         wb.save(filepath)
 
         _update('done', 100, f'完成！共 {len(matches)} 场比赛',
